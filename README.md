@@ -54,6 +54,7 @@ History is local and is not encrypted. Read [Privacy](PRIVACY.md) before use or 
 - [Contribute code or documentation](CONTRIBUTING.md); pull requests are reviewed by maintainers.
 - [Report a security vulnerability privately](SECURITY.md).
 - [Build and test from source](CONTRIBUTING.md#build-on-windows).
+- [Maintainer guide](docs/MAINTAINING.md) for reviewing requests and publishing updates.
 - [Verification](docs/VERIFICATION.md), [changelog](CHANGELOG.md) and [release checklist](docs/RELEASING.md).
 
 Licensed under [MIT](LICENSE), with [third-party notices](THIRD_PARTY_NOTICES.md). This repository distributes the Windows app and browser extension; it is not a hosted web app.

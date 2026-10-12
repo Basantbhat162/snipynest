@@ -6,6 +6,9 @@ import subprocess
 
 root = Path(__file__).resolve().parents[1]
 env = os.environ.copy()
+# Isolate public packaging from development builds and their locks.
+target = root / '.cache/public-target'
+env['CARGO_TARGET_DIR'] = str(target)
 flags = []
 # Cargo encoded flags preserve spaces in checkout and user paths.
 for source, replacement in [(str(root), '/snipynest'), (str(Path.home()), '/builder')]:
@@ -17,7 +20,7 @@ pnpm = shutil.which('pnpm')
 if not pnpm:
     raise SystemExit('Install pnpm before building.')
 subprocess.run([pnpm, 'tauri', 'build'], cwd=root, env=env, check=True)
-exe = root / 'src-tauri/target/release/omnicopy.exe'
+exe = target / 'release/omnicopy.exe'
 data = exe.read_bytes().lower()
 for private in [str(root), str(Path.home())]:
     for spelling in {private, private.replace(chr(92), '/'), private.replace('/', chr(92))}:

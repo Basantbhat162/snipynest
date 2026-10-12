@@ -20,7 +20,7 @@ Keep modules separated across clipboard ingestion, storage, native drag/drop, wi
 
 ## Public repository boundaries
 
-Stage explicit source paths and inspect the staged diff before committing. Keep credentials, clipboard databases, screenshots of private pages, personal paths, logs, session notes, local runtimes and generated installers out of Git. Use synthetic test data. Keep personal email out of commits using a GitHub noreply identity.
+Stage explicit source paths and inspect the staged diff before committing. Keep credentials, clipboard databases, screenshots of private pages, personal paths, logs, session notes, local runtimes and generated installers out of Git. Use synthetic test data. Keep personal email out of commits using a GitHub noreply identity. For GitHub squash merges explicitly pass the verified noreply address with `gh pr merge --author-email`; local Git configuration does not control the server-side merge author. Verify author and committer identities after every merge and before tagging a release.
 
 PRs describe the problem, behavior change, verification and remaining limits. Use feature branches and maintainer review; never push to a contributor's branch or publish a release without authorization. CI from forks must receive no secrets and only read permissions. Never run untrusted PR code in a privileged workflow.
 

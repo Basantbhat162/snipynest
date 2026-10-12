@@ -37,3 +37,6 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+
+# Unused starter artwork kept locally
+/public/
