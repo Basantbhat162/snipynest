@@ -2,11 +2,25 @@
 
 A Windows clipboard workspace with searchable history, screenshot editing, a small Capture Pad, and a browser companion for webpage screenshots.
 
+## Download for Windows
+
+**[Download Windows installer (.exe)](https://github.com/Basantbhat162/snipynest/releases/download/v1.3.0-preview/SnipyNest_1.3.0_x64-setup.exe)**
+
+Windows 10/11 **64-bit (x64)** desktop only. No macOS, Linux, mobile or native ARM64 installer is currently provided. The browser extension is optional and installed separately.
+
+| Download | What to do with it |
+| --- | --- |
+| [Windows installer — 1.3.0](https://github.com/Basantbhat162/snipynest/releases/download/v1.3.0-preview/SnipyNest_1.3.0_x64-setup.exe) | Run the `.exe` to install the desktop app. |
+| [Browser extension — ZIP](https://github.com/Basantbhat162/snipynest/releases/download/v1.3.0-preview/SnipyNest-Companion-1.3.0.zip) | Extract it, then follow the [Load unpacked guide](#install-the-browser-companion). |
+| [SHA-256 checksums](https://github.com/Basantbhat162/snipynest/releases/download/v1.3.0-preview/SHA256SUMS-1.3.0.txt) | Verify the downloaded files. |
+
+[Release notes and all files](https://github.com/Basantbhat162/snipynest/releases/tag/v1.3.0-preview). You do not need Git, a GitHub account or the source-code ZIP to install the app.
+
 **Public preview — 1.3.0.** This is usable development software, not a certified stable release. Automated checks pass, but live browser and Windows acceptance remain incomplete. Some pages with custom scrolling, infinite feeds or animations will need a smaller capture mode. Read the [known limits](docs/VERIFICATION.md).
 
 ## Download and install
 
-Open [Releases](https://github.com/Basantbhat162/snipynest/releases) and select the **1.3.0 public preview** (prereleases may not appear as “latest”). Download the Windows x64 installer and Companion ZIP separately. “Source code” downloads are for developers, not installers.
+Use the Windows installer link above, or open the [1.3.0 release](https://github.com/Basantbhat162/snipynest/releases/tag/v1.3.0-preview) and expand **Assets**. Choose the `.exe` for the desktop app; the Companion ZIP is a separate optional download. GitHub’s automatically generated “Source code” archives are for developers.
 
 1. Run `SnipyNest_1.3.0_x64-setup.exe` on Windows 10/11 x64 with WebView2 installed. This preview is unsigned; verify its published SHA-256 checksum before deciding whether to run it. Do not disable antivirus protections.
 2. Launch SnipyNest. Its tray icon remains available when the window is closed. Press **Ctrl+Shift+V** to open history.
@@ -18,7 +32,7 @@ The app retains the legacy OmniCopy data and installer identity for existing use
 
 The extension is currently distributed unpacked, not through a browser store.
 
-1. Extract `SnipyNest-Companion-1.3.0.zip` into a permanent folder.
+1. [Download the extension ZIP](https://github.com/Basantbhat162/snipynest/releases/download/v1.3.0-preview/SnipyNest-Companion-1.3.0.zip), right-click it in Windows Explorer, choose **Extract All**, and keep the extracted folder in a permanent location.
 2. Open `brave://extensions`, `chrome://extensions`, or `edge://extensions` in your browser.
 3. Enable **Developer mode**, choose **Load unpacked**, and select the extracted folder containing `manifest.json`.
 4. Pin SnipyNest Companion to the toolbar. Open a normal webpage, choose a capture mode and click **Capture**. Keep that tab active while it runs.
