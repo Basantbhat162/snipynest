@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a reproducible problem
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: "Use synthetic examples. Remove private clipboard data and account details. Report vulnerabilities through SECURITY.md."
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions and environment
+      description: Desktop and extension versions, Windows version, browser/version, display count and scaling.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include capture mode, shortcut or popup, and a public example URL if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Optional sanitized evidence
+      description: Review screenshots and diagnostics for personal information before attaching.

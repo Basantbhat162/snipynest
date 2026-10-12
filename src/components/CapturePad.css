@@ -1,0 +1,32 @@
+html:has(.capture-pad), body:has(.capture-pad), #root:has(.capture-pad) {
+  background: transparent !important;
+  height: 100%;
+  overflow: hidden;
+}
+.capture-pad {
+  margin: 3px;
+  height: calc(100% - 6px);
+  box-sizing: border-box;
+  background: #202429;
+  color: #eef2f8;
+  border: 1px solid #414a56;
+  border-radius: 12px;
+  overflow: hidden;
+  user-select: none;
+  position: relative;
+  font: 12px "Segoe UI", sans-serif;
+}
+.capture-pad header { height: 34px; display: flex; align-items: stretch; }
+.capture-pad header button { display: flex; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; padding: 0; }
+.capture-pad .pad-move { flex: 1; justify-content: flex-start; padding-left: 9px; gap: 7px; cursor: grab; touch-action: none; }
+.capture-pad .pad-close { width: 34px; flex-shrink: 0; cursor: pointer; }
+.capture-pad .pad-close:hover { background: #743444; }
+.capture-pad button:focus-visible { outline: 2px solid #a5caff; outline-offset: -3px; }
+.capture-pad .pad-image { border: 0; border-top: 1px solid #414a56; border-radius: 0; width: 100%; height: calc(100% - 34px); display: flex; align-items: center; justify-content: center; background: #14181e; color: #b4d1ff; padding: 5px; cursor: grab; touch-action: none; }
+.capture-pad .pad-image:hover { background: #283242; }
+.capture-pad .pad-image:disabled { cursor: progress; opacity: .65; }
+.capture-pad .pad-image img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.capture-pad p { position: absolute; bottom: 0; inset-inline: 0; margin: 0; padding: 6px; background: #522332; color: #fff; max-height: 66px; overflow: auto; font-size: 11px; }
+.capture-pad.arrived { animation: pad-arrived 200ms ease-out; }
+@keyframes pad-arrived { from { border-color: #b4d1ff; } to { border-color: #596371; } }
+@media (prefers-reduced-motion: reduce) { .capture-pad.arrived { animation: none; } }

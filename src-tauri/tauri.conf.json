@@ -1,0 +1,61 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SnipyNest",
+  "version": "1.3.0",
+  "identifier": "com.omnicopy.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "visible": false,
+        "title": "SnipyNest",
+        "width": 380,
+        "minWidth": 320,
+        "minHeight": 480,
+        "height": 900,
+        "resizable": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "transparent": true,
+        "shadow": true,
+        "skipTaskbar": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost data: blob:; connect-src ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "English"
+        ],
+        "displayLanguageSelector": false,
+        "compression": "lzma",
+        "template": "installer/installer.nsi",
+        "installerHooks": "installer/hooks.nsh"
+      }
+    },
+    "publisher": "SnipyNest",
+    "licenseFile": "../LICENSE"
+  }
+}

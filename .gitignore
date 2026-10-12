@@ -1,0 +1,39 @@
+# Dependencies and build output
+node_modules/
+dist/
+dist-ssr/
+target/
+artifacts/
+.cache/
+Python/
+tmp/
+# Local tools and session notes
+.agents/
+.vscode/
+.idea/
+HANDOFF.md
+implementation_plan.md
+walkthrough.md
+skills-lock.json
+tests/debug/
+# Personal data and credentials
+.env
+.env.*
+!.env.example
+*.local
+*.log
+*.db
+*.db-*
+*.sqlite*
+*.pem
+*.key
+*.pfx
+*.p12
+*.dmp
+data/
+blobs/
+drops/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

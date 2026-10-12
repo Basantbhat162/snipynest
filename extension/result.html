@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SnipyNest capture ready</title><link rel="stylesheet" href="popup.css"><script type="module" src="result.js"></script></head>
+<body class="result-page"><main>
+  <header><h1>Your capture is ready</h1></header>
+  <p id="status" role="status" aria-live="polite">Loading the captured PNG…</p>
+  <div class="result-actions"><button id="copy" disabled>Copy image</button><a id="save" download="SnipyNest-page.png" hidden>Save PNG</a></div>
+  <p class="intro">Copy sends the image to your clipboard and SnipyNest history when monitoring is on. This page keeps the loaded image until you close it.</p>
+  <img id="image" alt="Captured webpage" hidden>
+</main></body></html>
