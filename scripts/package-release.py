@@ -12,7 +12,7 @@ assert json.loads((extension / "manifest.json").read_text(encoding="utf-8"))["ve
 artifacts = root / "artifacts"
 artifacts.mkdir(exist_ok=True)
 name = f"SnipyNest_{version}_x64-setup.exe"
-source = root / "src-tauri/target/release/bundle/nsis" / name
+source = root / ".cache/public-target/release/bundle/nsis" / name
 destination = artifacts / name
 shutil.copy2(source, destination)
 assert source.read_bytes() == destination.read_bytes(), "Installer copy differs"
