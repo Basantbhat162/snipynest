@@ -1,4 +1,5 @@
 import { createCaptureController } from './capture-core.mjs';
+import { copyInCapturedPage } from './clipboard-delivery.mjs';
 
 let creatingOffscreen;
 let sessionId;
@@ -184,7 +185,21 @@ const controller = createCaptureController({
   capture: tab => chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' }),
   start: async metrics => { await ensureOffscreen(); await offscreen('start', metrics); },
   append: (_, frame) => { trace({stage:'frame',y:frame.y}); return offscreen('append', frame); },
-  finish: async () => { const result = await offscreen('finish'); keepResult = Boolean(result.resultAvailable); resultIdentity = result.resultId; deliveryCopied = result.copied === true; return result; },
+  finish: async () => {
+    const result = await offscreen('finish');
+    keepResult = Boolean(result.resultAvailable); resultIdentity = result.resultId;
+    if (result.copied === false && !result.partial) {
+      // Try the still-focused captured document without opening a tab or stealing focus.
+      // A document token prevents writing a prior capture after navigation.
+      try {
+        const payload = await offscreen('clipboard-payload', {resultId: result.resultId});
+        const copied = await inject(requestTab, copyInCapturedPage, [sessionId, payload.base64]);
+        if (copied === true) { result.copied = true; delete result.warning; }
+      } catch { trace({stage:'clipboard-pending'}); }
+    }
+    deliveryCopied = result.copied === true;
+    return result;
+  },
   finishPartial: async () => { const result = await offscreen('finish',{partial:true}); keepResult = Boolean(result.resultAvailable); resultIdentity=result.resultId; return result; },
   cleanup: async tab => inject(tab, token => {
     const state = window.__omnicopyCapture;
@@ -217,14 +232,6 @@ async function beginCapture(tab, mode = 'full', slow = false) {
   try { await chrome.storage?.local?.set({captureSettings:{mode,slow}}); } catch {}
   let result;
   try { result = await controller.capture(); } finally { starting = false; }
-  if (result.success && result.copied === false) {
-    // Offscreen clipboard writes may be rejected even with clipboardWrite.
-    // A visible extension page can write from a focused document and retain PNG.
-    try {
-      const popups = await chrome.runtime.getContexts({contextTypes:['POPUP']});
-      if (!popups.length) await chrome.tabs.create({url:chrome.runtime.getURL('result.html'), active:true});
-    } catch { /* The ready badge and popup retain the result if opening is blocked. */ }
-  }
   return result;
 }
 chrome.commands.onCommand.addListener((command, tab) => {

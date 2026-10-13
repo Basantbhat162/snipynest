@@ -82,3 +82,18 @@ test('explicit partial finish crops output to covered rows without automatic cop
   assert.equal(result.copied,false);
   assert.equal(clipboardWrites,writes);
 });
+
+
+test('clipboard payload is bound to the completed result and excludes partial output',async()=>{
+  assert.equal((await request('clipboard-payload',{resultId:'stale'})).success,false);
+  await request('start',{...metrics,totalHeight:800});
+  await request('append',{y:0,dataUrl:'data:image/png;base64,AA=='});
+  const result=await request('finish');
+  const payload=await request('clipboard-payload',{resultId:result.resultId});
+  assert.equal(payload.success,true);
+  assert.equal(atob(payload.base64),'PNG encoded data');
+  await request('start',metrics);
+  await request('append',{y:0,dataUrl:'data:image/png;base64,AA=='});
+  const partial=await request('finish',{partial:true});
+  assert.equal((await request('clipboard-payload',{resultId:partial.resultId})).success,false);
+});

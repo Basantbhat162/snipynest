@@ -102,6 +102,17 @@ pub fn run() {
     // Snapshot clipboard events promptly; encoding and SQLite work live on an
     // event-driven worker with a strict 64 MB pending payload budget.
     std::thread::spawn(move || {
+        let mut arrivals = clipboard::arrival::ImageArrivals::default();
+        // Seed fingerprints only: restoring recent history after restart stays quiet.
+        if let Ok(clips) = db_for_listener.query_clips(&storage::ClipFilter {
+            clip_type: Some("image".into()),
+            limit: Some(64),
+            ..Default::default()
+        }) {
+            for clip in clips.iter().rev() {
+                arrivals.should_notify(&clip.hash, None);
+            }
+        }
         while let Ok((item, monitor)) = capture_receiver.recv() {
             let weight = item.text.as_ref().map_or(0, |text| text.len())
                 + item.image_png.as_ref().map_or(0, |image| image.len());
@@ -144,11 +155,15 @@ pub fn run() {
                         if let Some(text) = clip.text_content.as_mut() {
                             *text = text.chars().take(4096).collect();
                         }
-                        let app2 = app.clone();
-                        let arrival = clip.clone();
-                        let _ = app.run_on_main_thread(move || {
-                            window::image_arrived(&app2, &arrival, monitor)
-                        });
+                        if clip.clip_type == ClipType::Image
+                            && arrivals.should_notify(&clip.hash, clip.source_app.as_deref())
+                        {
+                            let app2 = app.clone();
+                            let arrival = clip.clone();
+                            let _ = app.run_on_main_thread(move || {
+                                window::image_arrived(&app2, &arrival, monitor)
+                            });
+                        }
                         let _ = app.emit("new-clip", clip);
                     }
                     Err(error) => {

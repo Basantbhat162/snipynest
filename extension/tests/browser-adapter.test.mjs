@@ -65,7 +65,7 @@ globalThis.chrome = {
 await import('../background.js');
 function request(action, options = {}) { return new Promise(resolve => listener({ action, ...options }, { id: 'companion' }, resolve)); }
 
-test('clipboard failure opens a focused result tab only when the popup is absent', async () => {
+test('clipboard failure retains the PNG without opening or focusing a result tab', async () => {
   const send = chrome.runtime.sendMessage, contexts = chrome.runtime.getContexts;
   let popup = false;
   const opened = [];
@@ -76,10 +76,10 @@ test('clipboard failure opens a focused result tab only when the popup is absent
     : send(message);
   try {
     assert.equal((await request('capture-full-page',{mode:'visible'})).success,true);
-    assert.deepEqual(opened,[{url:'chrome-extension://companion/result.html',active:true}]);
+    assert.deepEqual(opened,[]);
     popup = true;
     await request('capture-full-page',{mode:'visible'});
-    assert.equal(opened.length,1);
+    assert.equal(opened.length,0);
   } finally {chrome.runtime.sendMessage=send;chrome.runtime.getContexts=contexts;offscreenOpen=false;}
 });
 
@@ -242,4 +242,35 @@ test('full-page capture detects the main inner scrolling panel', async () => {
     assert.deepEqual(frames,[0,700,1400]);
     assert.equal(top,75);
   } finally {document.querySelectorAll=query;globalThis.getComputedStyle=computed;document.documentElement.scrollHeight=rootHeight;document.body.scrollHeight=bodyHeight;}
+});
+
+
+test('background clipboard rejection retries in the captured document without a new tab', async () => {
+  const send = chrome.runtime.sendMessage;
+  const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const oldFocus = document.hasFocus, oldItem = globalThis.ClipboardItem;
+  let writes = 0;
+  document.hasFocus = () => true;
+  globalThis.ClipboardItem = class { constructor(data) { this.data=data; } };
+  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{write:async items=>{
+    assert.equal(items[0].data['image/png'].type,'image/png'); writes++;
+  }}}});
+  chrome.runtime.sendMessage = async message => {
+    if(message.target==='offscreen' && message.action==='finish') return {success:true,copied:false,resultAvailable:true,resultId:'ready',width:1000,height:800};
+    if(message.target==='offscreen' && message.action==='clipboard-payload') {
+      assert.equal(message.data.resultId,'ready'); return {success:true,base64:btoa('synthetic PNG')};
+    }
+    return send(message);
+  };
+  try {
+    const result=await request('capture-full-page',{mode:'visible'});
+    assert.equal(result.copied,true); assert.equal(writes,1);
+    assert.equal((await request('capture-status')).copied,true);
+    document.hasFocus=()=>false;
+    assert.equal((await request('capture-full-page',{mode:'visible'})).copied,false);
+    assert.equal(writes,1);
+  } finally {
+    chrome.runtime.sendMessage=send; document.hasFocus=oldFocus; globalThis.ClipboardItem=oldItem;
+    if(previousNavigator) Object.defineProperty(globalThis,'navigator',previousNavigator); else delete globalThis.navigator;
+  }
 });
