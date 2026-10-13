@@ -2,6 +2,12 @@ use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
+pub fn is_native_visible(window: &WebviewWindow) -> bool {
+    window
+        .hwnd()
+        .is_ok_and(|hwnd| unsafe { IsWindowVisible(hwnd.0 as _) != 0 })
+}
+
 fn show_quiet(window: &WebviewWindow) {
     if let Ok(hwnd) = window.hwnd() {
         unsafe {
@@ -23,7 +29,7 @@ impl DragPresentation {
             .hide_during_drag;
         for label in ["main", "capture-pad"] {
             if let Some(window) = app.get_webview_window(label) {
-                if !window.is_visible().unwrap_or(false) {
+                if !is_native_visible(&window) {
                     continue;
                 }
                 if let Ok(hwnd) = window.hwnd() {
@@ -133,22 +139,37 @@ pub fn image_arrived(app: &AppHandle, clip: &crate::storage::Clip, monitor: supe
         crate::sound::play(state.preferences.read().sound_volume);
     }
     let _ = app.emit("pad-updated", ());
-    if app
-        .get_webview_window("main")
-        .is_some_and(|w| w.is_visible().unwrap_or(false))
-        || state.preferences.read().pad_mode == "off"
-        || state.native_drag_active.load(Ordering::Relaxed)
+    super::pad_timer::arrival(app, monitor);
+}
+
+// Returns false only while a native interaction temporarily prevents placement.
+pub fn present_arrival(app: &AppHandle, monitor: super::MonitorBounds) -> bool {
+    let state = app.state::<crate::AppState>();
+    if state.preferences.read().pad_mode == "off"
+        || app
+            .get_webview_window("main")
+            .is_some_and(|w| is_native_visible(&w))
+    {
+        return true;
+    }
+    if state.native_drag_active.load(Ordering::Relaxed)
         || state.window_move_active.load(Ordering::Relaxed)
     {
-        return;
+        return false;
     }
-    if let Ok(pad) = ensure_pad(app) {
-        // Use the cursor monitor sampled at WM_CLIPBOARDUPDATE, before image/storage work.
-        place_pad(&pad, monitor, true);
-        show_quiet(&pad);
-        super::pad_timer::restart(app);
+    match ensure_pad(app) {
+        Ok(pad) => {
+            place_pad(&pad, monitor, true);
+            show_quiet(&pad);
+            super::pad_timer::restart(app);
+        }
+        Err(error) => {
+            let _ = app.emit("capture-error", serde_json::json!({"message":format!("Image saved, but Capture Pad could not open: {error}")}));
+        }
     }
+    true
 }
+
 #[tauri::command]
 pub fn show_capture_pad(app: AppHandle) -> Result<(), String> {
     let pad = ensure_pad(&app)?;

@@ -12,6 +12,17 @@ async function process(action, data) {
       if (!completed) throw new Error('The image expired. Capture it again.');
       return { url: completed.url, width: completed.width, height: completed.height, resultId:completed.id,partial:completed.partial };
     }
+    if (action === 'clipboard-payload') {
+      if (!completed || completed.id !== data?.resultId || completed.partial) throw new Error('No complete capture available.');
+      // Bound JSON/base64 transfer independently of the retained result budget.
+      if (completed.blob.size > 16 * 1024 * 1024) throw new Error('Use Copy in the popup for this large image.');
+      const bytes = new Uint8Array(await completed.blob.arrayBuffer());
+      let binary = '';
+      for (let offset = 0; offset < bytes.length; offset += 8192) {
+        binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+      }
+      return {base64:btoa(binary)};
+    }
     if (action === 'retry-copy') {
       if (!completed) throw new Error('The image expired. Capture it again.');
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': completed.blob })]);

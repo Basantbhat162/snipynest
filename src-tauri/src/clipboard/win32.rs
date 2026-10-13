@@ -223,7 +223,17 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
                             let u_height = height.unsigned_abs();
                             let pixel_data_len = (u_width as usize) * (u_height as usize) * 4;
                             if size >= bi_size + pixel_data_len {
-                                let pixels_ptr = (ptr as *const u8).add(bi_size);
+                                let pixels = std::slice::from_raw_parts(
+                                    (ptr as *const u8).add(bi_size),
+                                    pixel_data_len,
+                                )
+                                .to_vec();
+                                let alpha_mask = v5.bV5AlphaMask;
+                                // Snapshot bytes, then release the global clipboard before
+                                // pixel conversion/PNG encoding. Other apps can paste/write now.
+                                GlobalUnlock(handle as HGLOBAL);
+                                CloseClipboard();
+                                let pixels_ptr = pixels.as_ptr();
                                 let is_bottom_up = height > 0;
                                 let mut rgba_img = image::RgbaImage::new(u_width, u_height);
                                 let mut has_non_zero_alpha = false;
@@ -245,7 +255,7 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
                                 }
 
                                 // If legacy Windows producer left all alpha bytes as 0, make opaque
-                                if !has_non_zero_alpha && v5.bV5AlphaMask == 0 {
+                                if !has_non_zero_alpha && alpha_mask == 0 {
                                     for pixel in rgba_img.pixels_mut() {
                                         pixel[3] = 255;
                                     }
@@ -263,6 +273,7 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
                                         source_title: source_title.clone(),
                                     });
                                 }
+                                return item;
                             }
                         }
                     }
@@ -306,6 +317,8 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
                         bmp_bytes.extend_from_slice(&[0, 0, 0, 0]); // Reserved
                         bmp_bytes.extend_from_slice(&(off_bits as u32).to_le_bytes());
                         bmp_bytes.extend_from_slice(dib_slice);
+                        GlobalUnlock(handle as HGLOBAL);
+                        CloseClipboard();
 
                         if let Ok(img) = crate::storage::blob::decode_image(&bmp_bytes) {
                             let mut png_bytes = Vec::new();
@@ -321,6 +334,7 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
                                 });
                             }
                         }
+                        return item;
                     }
 
                     GlobalUnlock(handle as HGLOBAL);

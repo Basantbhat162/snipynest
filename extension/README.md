@@ -1,4 +1,4 @@
-# SnipyNest Companion 1.3.0
+# SnipyNest Companion 1.3.1
 
 Capture supported webpages as PNG, copy, or save the completed file. SnipyNest desktop must be running with monitoring enabled to collect the clipboard image. Copied does not mean desktop storage acknowledged it. Native Messaging is not implemented.
 
@@ -23,7 +23,7 @@ Enable **Wait longer for animations and lazy images** for slower pages. Capture 
 
 ## Results and limits
 
-The latest completed PNG stays available for five minutes or until a replacement capture succeeds. Reopen the popup for preview, Copy retry or Save PNG. Copy runs from the focused popup. If automatic clipboard access fails after a shortcut capture and no popup is open, a result tab opens with Copy and Save controls. Once loaded, that tab holds its own PNG until closed, even after the background result expires. Clipboard failure preserves the result; a PNG toolbar badge marks an uncopied result.
+The latest completed PNG stays available for five minutes or until a replacement capture succeeds. Reopen the popup for preview, Copy retry or Save PNG. Copy runs from the focused popup. When offscreen copying fails, the extension tries the still-focused captured page in its isolated extension context. It never opens or focuses a result tab automatically. If copying is denied, the page loses focus, or the PNG exceeds the 16 MiB automatic-transfer limit, open the popup and use Copy image or Save PNG. The retained result limit remains 64 MiB. Clipboard failure preserves the result; a PNG toolbar badge marks an uncopied result.
 
 Limits: 32 million pixels, 32,767 pixels per side, 50 frames, at least 550 ms between frames, a 90-second capture-loop deadline, a 20-second image-processing request timeout, and 64 MiB completed PNG. Raw canvas memory can reach 128 MB plus temporary bitmap/encoding memory. Horizontal overflow is omitted. The offscreen document closes on failure/cancellation; successful captures retain the bounded result.
 
@@ -37,4 +37,4 @@ Live acceptance still requires Chrome/Edge/Brave popup and shortcut captures, ne
 
 Scroll offsets are measured after settling. Fractional bottom rounding is tolerated, and stalls get two bounded retries. A permanent stall with captured frames produces an explicitly partial image that is not automatically copied. Capture visible area and Choose scrolling panel are directly available after errors. Save capture diagnostics downloads a local bounded trace without page text or screenshots. No diagnostics are uploaded.
 
-This is a candidate build. Production-adapter regressions pass, but live Brave/Chrome/Edge testing is blocked by a browser-control initialization failure in the build session. No claim of all-website support or live certification is made.
+This is a public preview. Production-adapter regressions do not certify actual Brave/Chrome/Edge clipboard permission behavior. Browser automation could inspect its inventory, but policy blocked access to extension management to reload and verify this build. No claim of all-website support or live certification is made.
