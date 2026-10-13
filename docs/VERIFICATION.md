@@ -2,9 +2,10 @@
 
 ## Current update
 
+- Retained result pages now copy only after an explicit Copy image click. A regression proved that loading/focusing the old result page previously attempted to write over newer clipboard content; the new behavior removes that delayed automatic write. This is a reproduced code path, not proof of the reported Wispr interaction.
 - Observed red regression: shortcut clipboard failure opened a focused result tab despite the new requirement to remain on the page. The corrected regression passes.
 - Frontend/Companion: 64 tests passed; TypeScript check and frontend production build passed.
-- Rust 1.3.1 tests: 28 passed, zero failed, three live-clipboard tests intentionally ignored. Public installer build is pending.
+- Rust 1.3.1 tests: 28 passed, zero failed, three live-clipboard tests intentionally ignored. Optimized Windows NSIS installer built successfully; public binary passed the local-path privacy check. Packaged installer: 2,706,874 bytes, identical to build output. Companion ZIP: 21,979 bytes; all 13 source files plus two license files matched, ZIP integrity passed, and SHA-256 checksums were generated.
 - New coverage: focused-document fallback and focus loss, stale result/document guards, partial-result exclusion, recent-image notification suppression, bounded fingerprint cache, sequence coalescing, missed-event recovery and bounded retries after clipboard contention.
 - Live browser control is now available, but policy rejected brave://extensions; reloading/testing the installed Companion through that surface was blocked. No alternative control path was used. Actual Brave/Chrome/Edge clipboard delivery remains unverified.
 - Native clipboard tests that modify the user's clipboard remain ignored. Actual Wispr dictation/restoration, 2–3 hour soak, sleep/resume, multi-monitor Pad behavior, audible sound and installed upgrade remain unverified.

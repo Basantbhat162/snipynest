@@ -21,3 +21,5 @@ Clipboard API context behavior is documented in [MDN's extension clipboard guide
 ## Evidence and limits
 
 The former production-adapter test expected a focused result tab. Requiring no new tab failed before the fix and passes after it. Tests cover focused-page copy, lost focus, stale document/result identity, partial output, restored image feedback, bounded fingerprints, duplicate sequence notifications, bounded retries and pause semantics. These tests do not reproduce Wispr's real clipboard restoration or certify multi-hour Windows behavior. See ../VERIFICATION.md.
+
+Retained result pages now copy only after an explicit Copy image click. A regression proved that loading/focusing the old result page previously attempted to write over newer clipboard content; the new behavior removes that delayed automatic write. This is a reproduced code path, not proof of the reported Wispr interaction.
