@@ -1,4 +1,4 @@
-# SnipyNest Companion 1.3.1
+# SnipyNest Companion 1.4.0
 
 Capture supported webpages as PNG, copy, or save the completed file. SnipyNest desktop must be running with monitoring enabled to collect the clipboard image. Copied does not mean desktop storage acknowledged it. Native Messaging is not implemented.
 
