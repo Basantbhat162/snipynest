@@ -29,7 +29,8 @@ export function CategoryTabs({
 }) {
   return (
     <nav className="category-tabs" aria-label="Filter clipboard history">
-      {tabs.map(({ id, label, Icon }) => (
+      {[tabs.slice(0, 5), tabs.slice(5)].map((group, index) => <div className="category-group" key={index}>
+      {group.map(({ id, label, Icon }) => (
         <button
           key={id}
           className={activeCategory === id ? "is-active" : ""}
@@ -43,6 +44,7 @@ export function CategoryTabs({
           )}
         </button>
       ))}
+      </div>)}
     </nav>
   );
 }

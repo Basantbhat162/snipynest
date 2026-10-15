@@ -37,7 +37,7 @@ import "./App.css";
 
 type Notice = { message: string; error?: boolean; undoIds?: string[]; undoBatch?: string };
 const labels: Record<Category, string> = {
-  all: "All clips",
+  all: "Recent clips",
   image: "Images",
   text: "Text",
   code: "Code",
@@ -69,6 +69,7 @@ export function App() {
   const [showStorage, setShowStorage] = useState(false);
   const [batch, setBatch] = useState<{token:string;count:number}|null>(null);
   const [includePinned, setIncludePinned] = useState(false);
+  const [selectionToolsOpen, setSelectionToolsOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [stats, setStats] = useState<StorageStats | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -385,7 +386,7 @@ export function App() {
       </div>
       <div className="feed-heading">
         <h2>{search ? "Search results" : labels[category]}</h2>
-        <span>{isPinned ? "Pinned mode" : "Peek mode"}</span>
+        {!!clips.length && <button className="text-button selection-toggle" aria-expanded={selectionToolsOpen} aria-controls="selection-tools" onClick={() => setSelectionToolsOpen(value => !value)}>Select</button>}
         <button
           className="icon-button compact"
           onClick={() => void refresh()}
@@ -421,9 +422,9 @@ export function App() {
           </button>
         </div>
       )}
-      {!!clips.length && <div className="selection-tools">
+      {!!clips.length && <div className="selection-tools" id="selection-tools" hidden={!selectionToolsOpen}>
         <button className="text-button" disabled={busy} onClick={()=>setSelectedIds(new Set(clips.map(clip=>clip.id)))}>Select this page</button>
-        {category !== "trash" && <><button className="text-button" disabled={busy} onClick={()=>void trash([],true)}>Select all matching…</button>
+        {category !== "trash" && <><button className="text-button" disabled={busy} onClick={()=>void trash([],true)}>Trash all matching…</button>
         <label><input type="checkbox" checked={includePinned} onChange={e=>setIncludePinned(e.target.checked)}/> Include pinned</label></>}
       </div>}
       <div

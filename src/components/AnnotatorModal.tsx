@@ -639,7 +639,7 @@ export function AnnotatorModal({
           </button>
         </div>
       </header>
-      <div className="annotator-tools" aria-label="Image tools">
+      <div className="annotator-tools" role="group" aria-label="Image tools">
         {tools.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
@@ -658,7 +658,7 @@ export function AnnotatorModal({
         ))}
       </div>
       <div className="annotator-options">
-        {tool !== "crop" && <><div className="annotator-palette" aria-label="Annotation color">
+        {tool !== "crop" && <><div className="annotator-palette" role="group" aria-label="Annotation color">
           {palette.map((item) => (
             <button
               key={item.color}
@@ -686,11 +686,11 @@ export function AnnotatorModal({
           </select>
         </label>
         </>}
-        {tool === "crop" && <div className="annotator-crop-modes" aria-label="Crop method">
+        {tool === "crop" && <div className="annotator-crop-modes" role="group" aria-label="Crop method">
           <button aria-pressed={cropMode === "adjust"} disabled={!ready || !!busy || drawing} onClick={() => { setCropMode("adjust"); setCrop(initialCrop(image!.width, image!.height, aspect)); }}>Adjust edges</button>
           <button aria-pressed={cropMode === "draw"} disabled={!ready || !!busy || drawing} onClick={() => { setCropMode("draw"); setCrop(null); }}>Draw area</button>
         </div>}
-        <div className="annotator-zoom">
+        <div className="annotator-zoom" role="group" aria-label="Image zoom">
           <button
             aria-label="Zoom out"
             onClick={() => setZoom((value) => Math.max(fit, (value ?? fit) / 1.5))}

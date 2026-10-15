@@ -4,25 +4,25 @@ A Windows clipboard workspace with searchable history, screenshot editing, a sma
 
 ## Download for Windows
 
-**[Download Windows installer (.exe)](https://github.com/Basantbhat162/snipynest/releases/download/v1.4.0-preview/SnipyNest_1.4.0_x64-setup.exe)**
+**[Download Windows installer (.exe)](https://github.com/Basantbhat162/snipynest/releases/download/v1.5.0-preview/SnipyNest_1.5.0_x64-setup.exe)**
 
 Windows 10/11 **64-bit (x64)** desktop only. No macOS, Linux, mobile or native ARM64 installer is currently provided. The browser extension is optional and installed separately.
 
 | Download | What to do with it |
 | --- | --- |
-| [Windows installer — 1.4.0](https://github.com/Basantbhat162/snipynest/releases/download/v1.4.0-preview/SnipyNest_1.4.0_x64-setup.exe) | Run the `.exe` to install the desktop app. |
-| [Browser extension — ZIP](https://github.com/Basantbhat162/snipynest/releases/download/v1.4.0-preview/SnipyNest-Companion-1.4.0.zip) | Extract it, then follow the [Load unpacked guide](#install-the-browser-companion). |
-| [SHA-256 checksums](https://github.com/Basantbhat162/snipynest/releases/download/v1.4.0-preview/SHA256SUMS-1.4.0.txt) | Verify the downloaded files. |
+| [Windows installer — 1.5.0](https://github.com/Basantbhat162/snipynest/releases/download/v1.5.0-preview/SnipyNest_1.5.0_x64-setup.exe) | Run the `.exe` to install the desktop app. |
+| [Browser extension — ZIP](https://github.com/Basantbhat162/snipynest/releases/download/v1.5.0-preview/SnipyNest-Companion-1.5.0.zip) | Extract it, then follow the [Load unpacked guide](#install-the-browser-companion). |
+| [SHA-256 checksums](https://github.com/Basantbhat162/snipynest/releases/download/v1.5.0-preview/SHA256SUMS-1.5.0.txt) | Verify the downloaded files. |
 
-[Release notes and all files](https://github.com/Basantbhat162/snipynest/releases/tag/v1.4.0-preview). You do not need Git, a GitHub account or the source-code ZIP to install the app.
+[Release notes and all files](https://github.com/Basantbhat162/snipynest/releases/tag/v1.5.0-preview). You do not need Git, a GitHub account or the source-code ZIP to install the app.
 
-**Public preview — 1.4.0.** This is usable development software, not a certified stable release. Automated checks pass, but live browser and Windows acceptance remain incomplete. Some pages with custom scrolling, infinite feeds or animations will need a smaller capture mode. Read the [known limits](docs/VERIFICATION.md).
+**Public preview — 1.5.0.** This is usable development software, not a certified stable release. Automated checks pass, but live browser and Windows acceptance remain incomplete. Some pages with custom scrolling, infinite feeds or animations will need a smaller capture mode. Read the [known limits](docs/VERIFICATION.md).
 
 ## Download and install
 
-Use the Windows installer link above, or open the [1.4.0 release](https://github.com/Basantbhat162/snipynest/releases/tag/v1.4.0-preview) and expand **Assets**. Choose the `.exe` for the desktop app; the Companion ZIP is a separate optional download. GitHub’s automatically generated “Source code” archives are for developers.
+Use the Windows installer link above, or open the [1.5.0 release](https://github.com/Basantbhat162/snipynest/releases/tag/v1.5.0-preview) and expand **Assets**. Choose the `.exe` for the desktop app; the Companion ZIP is a separate optional download. GitHub’s automatically generated “Source code” archives are for developers.
 
-1. Run `SnipyNest_1.4.0_x64-setup.exe` on Windows 10/11 x64 with WebView2 installed. This preview is unsigned; verify its published SHA-256 checksum before deciding whether to run it. Do not disable antivirus protections.
+1. Run `SnipyNest_1.5.0_x64-setup.exe` on Windows 10/11 x64 with WebView2 installed. This preview is unsigned; verify its published SHA-256 checksum before deciding whether to run it. Do not disable antivirus protections.
 2. Launch SnipyNest. Its tray icon remains available when the window is closed. Press **Ctrl+Shift+V** to open history.
 3. Copy text or take a Windows screenshot. With monitoring enabled, it appears in history. Pause monitoring before handling sensitive clipboard data.
 
@@ -32,13 +32,13 @@ The app retains the legacy OmniCopy data and installer identity for existing use
 
 The extension is currently distributed unpacked, not through a browser store.
 
-1. [Download the extension ZIP](https://github.com/Basantbhat162/snipynest/releases/download/v1.4.0-preview/SnipyNest-Companion-1.4.0.zip), right-click it in Windows Explorer, choose **Extract All**, and keep the extracted folder in a permanent location.
+1. [Download the extension ZIP](https://github.com/Basantbhat162/snipynest/releases/download/v1.5.0-preview/SnipyNest-Companion-1.5.0.zip), right-click it in Windows Explorer, choose **Extract All**, and keep the extracted folder in a permanent location.
 2. Open `brave://extensions`, `chrome://extensions`, or `edge://extensions` in your browser.
 3. Enable **Developer mode**, choose **Load unpacked**, and select the extracted folder containing `manifest.json`.
 4. Pin SnipyNest Companion to the toolbar. Open a normal webpage, choose a capture mode and click **Capture**. Keep that tab active while it runs.
 5. Use **Copy image** or **Save PNG**. Keep the desktop app running with monitoring enabled if you want copied captures saved in history.
 
-For updates, extract the new ZIP into the existing extension folder (or remove the old unpacked entry and load the new folder). Click **Reload** in browser extension management, confirm version **1.4.0**, and refresh the page before capturing. Desktop installation does not update the extension. See the [Companion guide](extension/README.md) for modes, errors and limits.
+For updates, extract the new ZIP into the existing extension folder (or remove the old unpacked entry and load the new folder). Click **Reload** in browser extension management, confirm version **1.5.0**, and refresh the page before capturing. Desktop installation does not update the extension. See the [Companion guide](extension/README.md) for modes, errors and limits.
 
 ## Everyday use
 
@@ -55,9 +55,9 @@ For updates, extract the new ZIP into the existing extension folder (or remove t
 
 Restoring one of the 64 most recently seen images updates history quietly instead of replaying capture sound or reopening the Pad. Explicit Windows snips still notify, even with identical pixels.
 
-Desktop shortcuts can be changed in Settings. Click the Capture Pad to open history, drag its handle to move it, or drag its thumbnail into a compatible app. By default it hides after eight seconds of inactivity; hover, focus and drag pause the timer. Settings controls Pad visibility, sound and return after closing history. The Pad floats near the taskbar; it is not embedded in it.
+Desktop shortcuts can be changed in Settings. The Capture Pad is a thumbnail shelf: click the image or history control to open history, drag the grip to move it, or drag the image into a compatible app. The count badge shows new captures; X hides the Pad. By default it hides after eight seconds of inactivity; hover, focus and drag pause the timer. Settings controls Pad visibility, sound and return after closing history. The Pad floats near the taskbar; it is not embedded in it.
 
-Select clips using their checkboxes. **Select this page** or **Select all matching** supports bulk Trash with confirmation and Undo. All matching excludes pinned clips unless you include them. A successful drop clears the transferred selection; cancelling keeps it selected. Images drag as files; text drags as text. For a mixed selection, use Export. Editing saves a new image and preserves the original.
+Select clips using their checkboxes. Open **Select** for **Select this page** and **Trash all matching…**. Bulk Trash requires confirmation and supports Undo. All matching excludes pinned clips unless you include them. A successful drop clears the transferred selection; cancelling keeps it selected. Images drag as files; text drags as text. For a mixed selection, use Export. Editing saves a new image and preserves the original.
 
 Crop opens with a full-image guide. Drag any edge or corner, or choose **Draw area** to draw a new selection. Focus a handle and use arrow keys for one-pixel adjustments (Shift for ten pixels), then choose **Apply crop**. **Open maximized window** gives the editor the full working area of its current monitor. Originals stay unchanged.
 

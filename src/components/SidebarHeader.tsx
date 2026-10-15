@@ -34,7 +34,7 @@ export function SidebarHeader({
           title="Drag to move window"
         >
           <Clipboard size={19} className="brand-icon" />
-          <h1>SnipyNest</h1>
+          <span className="brand-name">SnipyNest</span>
           <GripHorizontal size={15} className="muted" />
         </div>
         <div className="header-actions">
@@ -69,13 +69,14 @@ export function SidebarHeader({
           </button>
         </div>
       </div>
+      <h1 className="workspace-title">History</h1>
       <div className="search-field">
         <Search size={17} aria-hidden="true" />
         <input
           id="clip-search"
           type="search"
           aria-label="Search clipboard history"
-          placeholder="Search your clipboard…"
+          placeholder="Find a clip…"
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           autoComplete="off"
