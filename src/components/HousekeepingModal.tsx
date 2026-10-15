@@ -116,8 +116,9 @@ export function HousekeepingModal({
             <button type="button" className="button" onClick={() => void invoke("reset_capture_pad").catch(e => setError(String(e)))}>Show / reset Capture Pad</button>
             <h3>Shortcuts &amp; behavior</h3>
             <label className="preference-toggle"><span>Screen snip shortcut</span><input aria-label="Screen snip shortcut" value={draft.snipShortcut ?? "Ctrl+Shift+S"} onChange={e=>setDraft({...draft,snipShortcut:e.target.value})}/></label>
+            <label className="preference-toggle"><span>Quick monitor capture<small>Copies the whole screen under your pointer, including its taskbar.</small></span><input aria-label="Quick monitor capture shortcut" value={draft.quickCaptureShortcut ?? "Ctrl+Alt+S"} onChange={e=>setDraft({...draft,quickCaptureShortcut:e.target.value})}/></label>
             <label className="preference-toggle"><span>History shortcut</span><input aria-label="History shortcut" value={draft.historyShortcut ?? "Ctrl+Shift+V"} onChange={e=>setDraft({...draft,historyShortcut:e.target.value})}/></label>
-            <button type="button" className="text-button" onClick={()=>setDraft({...draft,snipShortcut:"Ctrl+Shift+S",historyShortcut:"Ctrl+Shift+V"})}>Reset shortcuts</button>
+            <button type="button" className="text-button" onClick={()=>setDraft({...draft,snipShortcut:"Ctrl+Shift+S",historyShortcut:"Ctrl+Shift+V",quickCaptureShortcut:"Ctrl+Alt+S"})}>Reset shortcuts</button>
             <div className="preferences-save">
               <span role="status">{saved ? "Settings saved" : ""}</span>
               <button className="button" type="submit" disabled={busy}>

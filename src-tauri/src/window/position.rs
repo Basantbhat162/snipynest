@@ -82,8 +82,8 @@ pub fn monitor_work_area_at(cursor: (i32, i32)) -> MonitorBounds {
     }
 }
 
-pub const PAD_WIDTH: f64 = 176.0;
-pub const PAD_HEIGHT: f64 = 126.0;
+pub const PAD_WIDTH: f64 = 216.0;
+pub const PAD_HEIGHT: f64 = 88.0;
 
 /// Preserve a user's position on this monitor; follow arrivals to a different one.
 pub fn pad_placement(
@@ -163,12 +163,12 @@ mod tests {
             scale_factor: 2.0,
         };
         assert_eq!(
-            pad_placement(area, Some((200, 100, 352, 252))),
-            (200, 100, 352, 252)
+            pad_placement(area, Some((200, 100, 432, 176))),
+            (200, 100, 432, 176)
         );
         assert_eq!(
-            pad_placement(area, Some((600, 450, 352, 252))),
-            (448, 348, 352, 252)
+            pad_placement(area, Some((550, 450, 432, 176))),
+            (368, 424, 432, 176)
         );
         let tiny = MonitorBounds {
             width: 100,

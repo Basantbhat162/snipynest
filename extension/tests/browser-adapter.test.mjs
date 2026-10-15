@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
 
 const styles = new Map();
 function pageNode(position, top = 'auto', boundsTop = 0) {
@@ -49,7 +50,14 @@ globalThis.chrome = {
     },
     onMessage: { addListener(callback) { listener = callback; } },
   },
-  scripting: { executeScript: async ({ func, args }) => [{ result: await func(...args) }] },
+  scripting: { executeScript: async ({func,args}) => {
+    // Injection has no module closure, crosses JSON, and may lose thrown errors.
+    try {
+      const run = vm.runInThisContext(`(${func.toString()})`);
+      const value = await run(...JSON.parse(JSON.stringify(args)));
+      return [{result:value === undefined ? null : JSON.parse(JSON.stringify(value))}];
+    } catch { return [{result:null}]; }
+  } },
   tabs: {
     query: async () => [{ id: 7, windowId: 3, url: currentUrl }],
     captureVisibleTab: async () => { if (failCapture) throw new Error('Capture permission was revoked'); return 'data:image/png;base64,frame'; },
@@ -273,4 +281,47 @@ test('background clipboard rejection retries in the captured document without a 
     chrome.runtime.sendMessage=send; document.hasFocus=oldFocus; globalThis.ClipboardItem=oldItem;
     if(previousNavigator) Object.defineProperty(globalThis,'navigator',previousNavigator); else delete globalThis.navigator;
   }
+});
+
+
+test('page preparation errors survive Chrome injection serialization and restore page state', async () => {
+  const execute = chrome.scripting.executeScript, query = document.querySelectorAll;
+  const computed = globalThis.getComputedStyle;
+  const panel = () => ({clientWidth:900,clientHeight:700,scrollHeight:2100,clientLeft:0,clientTop:0,
+    getBoundingClientRect:()=>({left:50,top:50,width:900,height:700}),scrollTop:0});
+  document.querySelectorAll=()=>[panel(),panel()];
+  globalThis.getComputedStyle=()=>({overflowY:'auto',visibility:'visible',display:'block'});
+  // Chrome may fulfill the injection with no useful result when page code rejects.
+  // Execute the production function, with JSON serialization and that failure contract.
+  chrome.scripting.executeScript=async ({func,args})=>{
+    try {const value=await func(...args);return [{result:value===undefined?null:JSON.parse(JSON.stringify(value))}];}
+    catch {return [{result:null}];}
+  };
+  try {
+    const result=await request('capture-full-page');
+    assert.equal(result.success,false);
+    assert.match(result.error,/several scrolling panels/);
+    assert.doesNotMatch(result.error,/Cannot read properties/);
+    assert.equal(window.__omnicopyCapture,undefined);
+    assert.equal(styles.size,0);
+  } finally {chrome.scripting.executeScript=execute;document.querySelectorAll=query;globalThis.getComputedStyle=computed;}
+});
+
+
+test('a new capture recovers page state left by an interrupted worker',async()=>{
+ let restored=0;
+ window.__omnicopyCapture={token:'old-worker-session',restore(){restored++;delete window.__omnicopyCapture;}};
+ try {const result=await request('capture-full-page',{mode:'visible'});assert.equal(result.success,true,result.error);assert.equal(restored,1);assert.equal(window.__omnicopyCapture,undefined);assert.equal(styles.size,0);} finally {delete window.__omnicopyCapture;}
+});
+
+test('inner-panel capture includes its pinned header once and restores its visibility',async()=>{
+ const query=document.querySelectorAll,computed=globalThis.getComputedStyle,capture=chrome.tabs.captureVisibleTab;
+ const rootHeight=document.documentElement.scrollHeight,bodyHeight=document.body.scrollHeight;let top=75,captures=0;
+ const header=pageNode('sticky','0px',50);header.getBoundingClientRect=()=>({left:50,top:50,width:900,height:40,bottom:90});
+ const panel={clientWidth:900,clientHeight:700,scrollHeight:2100,clientLeft:0,clientTop:0,contains:node=>node===header,getBoundingClientRect:()=>({left:50,top:50,width:900,height:700}),get scrollTop(){return top;},set scrollTop(value){top=Math.min(value,1400);}};
+ document.documentElement.scrollHeight=document.body.scrollHeight=800;document.querySelectorAll=()=>[panel,header];
+ globalThis.getComputedStyle=node=>node===panel?{overflowY:'auto',visibility:'visible',display:'block'}:computed(node);
+ chrome.tabs.captureVisibleTab=async()=>{assert.equal(header.style.getPropertyValue('visibility'),captures===0?'visible':'hidden');captures++;return 'data:image/png;base64,frame';};
+ try{const result=await request('capture-full-page');assert.equal(result.success,true,result.error);assert.equal(captures,3);assert.equal(top,75);assert.equal(header.style.getPropertyValue('visibility'),'visible');assert.equal(header.style.getPropertyPriority('visibility'),'important');assert.equal(styles.size,0);}
+ finally{document.querySelectorAll=query;globalThis.getComputedStyle=computed;chrome.tabs.captureVisibleTab=capture;document.documentElement.scrollHeight=rootHeight;document.body.scrollHeight=bodyHeight;}
 });

@@ -132,3 +132,10 @@ pub fn dismissed() {
     INTERACTING.store(false, Ordering::SeqCst);
     stop();
 }
+
+/// A suspended WebView may never deliver pointerleave/blur. Invalidate old expiry
+/// callbacks and reset hover state; preserve any pending new capture arrival.
+pub fn resumed(app: &AppHandle) {
+    INTERACTING.store(false, Ordering::SeqCst);
+    restart(app);
+}

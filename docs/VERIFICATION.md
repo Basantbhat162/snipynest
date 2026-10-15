@@ -1,6 +1,22 @@
-# Verification — SnipyNest 1.3.1 preview, October 13, 2026
+# Verification — SnipyNest 1.4.0 preview, October 15, 2026
 
 ## Current update
+
+- Frontend/Companion: 89 tests passed. TypeScript check and frontend production build passed.
+- Rust: 39 passed, zero failed, three live-clipboard tests intentionally ignored. Tests include an actual hidden Win32 test window receiving power/display broadcasts, bounded retry recovery, inaccessible clipboard sequences, pause privacy, shortcut migration/conflicts, capture limits and pixel conversion. A simulated 50-cycle suspend clock test is not a physical hibernate test.
+- Observed failing regressions before fixes: locked crop edges/corners refusing to shrink; injected browser preparation errors becoming null viewportWidth; interrupted worker state blocking the next capture; repeated inner-panel sticky headers; old popup results overwriting newer clipboard content; stale startup/preview responses and wrong Copy acknowledgements; permanently abandoned clipboard reads after five failed attempts; transient sequence zero replaying completed content.
+- Brave HTTP fixture: Crop opened selected with a full-image guide and all eight handles; keyboard left-edge resize changed 960 to 959 pixels; mouse left-edge drag changed width to 843 pixels; Apply crop updated the original-resolution canvas to 843 x 600. Compact Pad rendered at 216 x 88 logical pixels with one close control and working close/open-history command dispatch. Fixture native IPC is simulated. After recovering from a browser-control timeout, the 320 x 800 editor fixture displayed all crop tools, eight handles and footer controls without horizontal clipping. The viewport override was reset. Actual native maximizing remains unverified.
+- Production dependency audit (`pnpm audit --prod`) reported no known vulnerabilities on October 15. This does not prove the absence of application vulnerabilities. GitHub flagged [GHSA-wrw7-89jp-8q8g](https://github.com/advisories/GHSA-wrw7-89jp-8q8g) in glib 0.18.5. Locked target-specific dependency trees confirmed glib is absent from the shipped Windows x64 graph and present only through the Linux GTK stack. The alert remains open; Linux is unsupported and no Linux package is distributed.
+- UI mechanical detector returned no findings for changed editor, Pad and settings surfaces. This is not an accessibility certification.
+- Optimized Windows NSIS installer built and passed the local-path privacy check. Packaged installer: 2,726,026 bytes, identical to build output. Companion ZIP: 22,738 bytes, all 13 source files and two license notices verified; ZIP integrity and SHA-256 generation passed. These packages have not been installed during this session.
+- Actual Brave/Search Console capture and clipboard permissions, Windows quick monitor capture, installed upgrade, cross-app native drops, mixed-DPI monitor changes, audible sound, Wispr interaction and multi-hour/hibernate reliability remain unverified. The unavailable native automation and blocked browser extension-management surface were not bypassed.
+- Known remaining risks: custom/animated/virtualized pages may require a smaller mode; protected or hardware-rendered screen content can be blank; rapid clipboard overwrites can be coalesced; delayed clipboard rendering can change sequence IDs; an offscreen but visible Sidebar can suppress Pad arrivals. These changes address concrete tested defects, not every possible cause of a missing Pad.
+
+## Earlier verification records
+
+### SnipyNest 1.3.1 preview, October 13, 2026
+
+
 
 - Retained result pages now copy only after an explicit Copy image click. A regression proved that loading/focusing the old result page previously attempted to write over newer clipboard content; the new behavior removes that delayed automatic write. This is a reproduced code path, not proof of the reported Wispr interaction.
 - Observed red regression: shortcut clipboard failure opened a focused result tab despite the new requirement to remain on the page. The corrected regression passes.

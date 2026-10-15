@@ -324,7 +324,61 @@
 
 .annotator-close-prompt{padding:12px;background:#303740;display:flex;flex-wrap:wrap;gap:8px}.annotator-close-prompt p{width:100%;margin:0}.annotator-header-actions{flex-wrap:wrap;justify-content:flex-end}.annotator-stage{display:flex;align-items:flex-start}.annotator-canvas-container{margin:auto;}
 
-.annotator-crop{pointer-events:auto;cursor:move;touch-action:none}.crop-handle{position:absolute;width:12px;height:12px;background:#fff;border:2px solid #2563eb;border-radius:2px}.crop-handle.nw{left:-6px;top:-6px;cursor:nwse-resize}.crop-handle.ne{right:-6px;top:-6px;cursor:nesw-resize}.crop-handle.sw{left:-6px;bottom:-6px;cursor:nesw-resize}.crop-handle.se{right:-6px;bottom:-6px;cursor:nwse-resize}
+/* Crop edges are continuous hit targets, with larger corner targets on top. */
+.annotator-crop { pointer-events: auto; cursor: move; touch-action: none; user-select: none; }
+.annotator-crop:focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; }
+.annotator-crop > span { pointer-events: none; }
+.annotator-crop button.crop-handle {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  min-width: 24px;
+  min-height: 24px;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  transition: none;
+  touch-action: none;
+}
+.annotator-crop button.crop-handle::after {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 1px solid #172c51;
+  background: white;
+}
+.annotator-crop button.crop-handle:hover::after,
+.annotator-crop button.crop-handle:focus-visible::after { background: #93c5fd; }
+.annotator-crop .crop-handle.n, .annotator-crop .crop-handle.s {
+  left: 12px;
+  width: calc(100% - 24px);
+  min-width: 0;
+  cursor: ns-resize;
+}
+.annotator-crop .crop-handle.n { top: -12px; }
+.annotator-crop .crop-handle.s { bottom: -12px; }
+.annotator-crop .crop-handle.n::after, .annotator-crop .crop-handle.s::after { left: calc(50% - 10px); right: auto; width: 20px; }
+.annotator-crop .crop-handle.w, .annotator-crop .crop-handle.e {
+  top: 12px;
+  height: calc(100% - 24px);
+  min-height: 0;
+  cursor: ew-resize;
+}
+.annotator-crop .crop-handle.w { left: -12px; }
+.annotator-crop .crop-handle.e { right: -12px; }
+.annotator-crop .crop-handle.w::after, .annotator-crop .crop-handle.e::after { top: calc(50% - 10px); bottom: auto; height: 20px; }
+.annotator-crop .crop-handle.nw { left: -12px; top: -12px; cursor: nwse-resize; z-index: 2; }
+.annotator-crop .crop-handle.ne { right: -12px; top: -12px; cursor: nesw-resize; z-index: 2; }
+.annotator-crop .crop-handle.sw { left: -12px; bottom: -12px; cursor: nesw-resize; z-index: 2; }
+.annotator-crop .crop-handle.se { right: -12px; bottom: -12px; cursor: nwse-resize; z-index: 2; }
+.annotator-crop-modes { display: flex; flex-wrap: wrap; gap: 4px; }
+.annotator-crop-modes button { min-height: 32px; }
+.annotator-crop-modes button[aria-pressed="true"] { background: #303c50; border-color: #6b9ee8; }
+.annotator-crop-actions label { display: flex; align-items: center; gap: 6px; }
+
 
 .annotator-close-prompt {
   position: absolute;

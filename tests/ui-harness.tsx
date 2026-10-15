@@ -139,9 +139,11 @@ mockIPC(
       }
       case "export_clips_with_picker":
         return payload.clipIds.length;
-      case "start_native_drag":
-        await emit("native-drag-end", { dropped: false });
-        return;
+      case "start_native_drag": {
+        const dropped = new URLSearchParams(location.search).get("dropSuccess") === "1";
+        await emit("native-drag-end", { dropped });
+        return dropped;
+      }
       default:
         return;
     }
@@ -152,6 +154,6 @@ const { App } = await import("../src/App");
 const { CapturePad } = await import("../src/components/CapturePad");
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {isPad ? <><div style={{ width:176, height:126 }}><CapturePad /></div><p id="fixture-status" role="status">Pad fixture: native actions are simulated</p></> : <App />}
+    {isPad ? <><div style={{ width:216, height:88 }}><CapturePad /></div><p id="fixture-status" role="status">Pad fixture: native actions are simulated</p></> : <App />}
   </React.StrictMode>,
 );

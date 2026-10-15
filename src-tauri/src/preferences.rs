@@ -8,6 +8,7 @@ pub struct Preferences {
     pub start_at_login: bool,
     pub snip_shortcut: String,
     pub history_shortcut: String,
+    pub quick_capture_shortcut: String,
     pub pad_mode: String,
     pub pad_privacy: bool,
     pub hide_during_drag: bool,
@@ -24,6 +25,7 @@ impl Default for Preferences {
             start_at_login: false,
             snip_shortcut: "Ctrl+Shift+S".into(),
             history_shortcut: "Ctrl+Shift+V".into(),
+            quick_capture_shortcut: "Ctrl+Alt+S".into(),
             pad_mode: "arrival".into(),
             pad_privacy: false,
             hide_during_drag: false,
@@ -50,8 +52,9 @@ impl Preferences {
         }
         let a = crate::clipboard::listener::parse_shortcut(&self.snip_shortcut)?;
         let b = crate::clipboard::listener::parse_shortcut(&self.history_shortcut)?;
-        if a == b {
-            return Err("Snip and history shortcuts must be different".into());
+        let c = crate::clipboard::listener::parse_shortcut(&self.quick_capture_shortcut)?;
+        if a == b || a == c || b == c {
+            return Err("Snip, history and quick capture shortcuts must be different".into());
         }
         Ok(())
     }
@@ -126,5 +129,22 @@ pub fn set_start_at_login(enabled: bool) -> Result<(), String> {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn old_preferences_receive_quick_capture_default() {
+        let preferences: Preferences = serde_json::from_str("{}").unwrap();
+        assert_eq!(preferences.quick_capture_shortcut, "Ctrl+Alt+S");
+        assert!(preferences.validate().is_ok());
+    }
+    #[test]
+    fn quick_capture_cannot_reuse_history_shortcut() {
+        let mut preferences = Preferences::default();
+        preferences.quick_capture_shortcut = preferences.history_shortcut.clone();
+        assert!(preferences.validate().is_err());
     }
 }

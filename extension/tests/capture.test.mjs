@@ -116,3 +116,19 @@ test('permanent stall exposes an explicitly partial result and never calls full 
   assert.equal(result.partial,true);assert.equal(result.copied,false);assert.equal(full,false);
   assert.match(result.warning,/Partial capture/);
 });
+
+
+test('missing metrics and scroll replies produce actionable errors without dereferencing null', async()=>{
+  for (const missing of [null,undefined]) {
+    const {controller,events}=harness({prepare:async()=>missing});
+    const result=await controller.capture();
+    assert.equal(result.success,false);
+    assert.match(result.error,/dimensions|respond/);
+    assert.doesNotMatch(result.error,/Cannot read properties/);
+    assert.deepEqual(events.slice(-2),[['cleanup'],['release']]);
+    const scrolling=harness({scroll:async()=>missing});
+    const failed=await scrolling.controller.capture();
+    assert.match(failed.error,/scroll|respond/);
+    assert.doesNotMatch(failed.error,/Cannot read properties/);
+  }
+});

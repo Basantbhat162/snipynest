@@ -26,7 +26,9 @@ async function ensureOffscreen() {
 async function inject(tab, func, args = []) {
   const results = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args });
   if (!results[0]) throw new Error('Could not access this page. Reload it and try again.');
-  return results[0].result;
+  const result = results[0].result;
+  if (result?.__captureError) throw new Error(result.__captureError);
+  return result;
 }
 
 async function offscreen(action, data) {
@@ -55,6 +57,10 @@ const controller = createCaptureController({
     return tab;
   },
   prepare: async tab => inject(tab, async (token, mode, settleMs) => {
+    // Return failures as data: Chrome does not reliably propagate injected exceptions.
+    try {
+    // The worker serializes captures; an old page token can survive its restart.
+    window.__omnicopyCapture?.restore?.();
     if (window.__omnicopyCapture) throw new Error('A previous capture is still restoring this page. Reload it and try again.');
     const style = document.createElement('style');
     style.textContent = 'html,body,* {scroll-behavior:auto!important;scroll-snap-type:none!important;overflow-anchor:none!important} *,*::before,*::after{caret-color:transparent!important}';
@@ -122,8 +128,13 @@ const controller = createCaptureController({
     }
     const scrollHeight = document.scrollingElement?.scrollHeight ?? Math.max(root.scrollHeight, body?.scrollHeight || 0);
     return { settleMs, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight, totalHeight: mode === 'visible' ? window.innerHeight : mode === 'feed' ? Math.min(window.innerHeight*5,Math.max(scrollHeight,window.innerHeight)) : Math.max(window.innerHeight,scrollHeight), devicePixelRatio: window.devicePixelRatio || 1 };
+    } catch (error) {
+      return {__captureError: error instanceof Error ? error.message : 'The page could not complete this capture step.'};
+    }
   }, [sessionId, captureMode, settleMs]),
   scroll: async (tab, y, hidePinned) => inject(tab, async (token, targetY, hide) => {
+    // Return failures as data: Chrome does not reliably propagate injected exceptions.
+    try {
     const state = window.__omnicopyCapture;
     if (state?.token !== token) throw new Error('The page navigated during capture. Try again on the loaded page.');
     const settle = async () => {
@@ -138,31 +149,43 @@ const controller = createCaptureController({
       throw new Error('The page keeps moving. Stop scrolling and try again.');
     };
     state.expectedWindow={width:window.innerWidth,height:window.innerHeight,x:window.scrollX,y:window.scrollY};
-    if (state.region) { state.region.scrollTop=targetY; await settle(); state.expectedRegionY=state.region.scrollTop; const bounds=state.region.getBoundingClientRect(); if(Math.abs(bounds.left+state.region.clientLeft-state.regionBounds.x)>1 || Math.abs(bounds.top+state.region.clientTop-state.regionBounds.y)>1 || state.region.clientWidth!==state.regionBounds.width || state.region.clientHeight!==state.regionBounds.height)throw new Error('The selected panel moved or resized. Try again.'); return {y:state.region.scrollTop,viewportWidth:state.region.clientWidth,viewportHeight:state.region.clientHeight}; }
-    if (state.mode !== 'visible') window.scrollTo({ left: 0, top: targetY, behavior: 'instant' });
-    await settle();
-    state.expectedWindow={width:window.innerWidth,height:window.innerHeight,x:window.scrollX,y:window.scrollY};
+    if (state.region) {
+      state.region.scrollTop=targetY;
+      await settle();
+      state.expectedRegionY=state.region.scrollTop;
+      const bounds=state.region.getBoundingClientRect();
+      if(Math.abs(bounds.left+state.region.clientLeft-state.regionBounds.x)>1 || Math.abs(bounds.top+state.region.clientTop-state.regionBounds.y)>1 || state.region.clientWidth!==state.regionBounds.width || state.region.clientHeight!==state.regionBounds.height) throw new Error('The selected panel moved or resized. Try again.');
+    } else {
+      if (state.mode !== 'visible') window.scrollTo({ left: 0, top: targetY, behavior: 'instant' });
+      await settle();
+      state.expectedWindow={width:window.innerWidth,height:window.innerHeight,x:window.scrollX,y:window.scrollY};
+    }
+    const captureBounds=state.regionBounds || {x:0,y:0,width:window.innerWidth,height:window.innerHeight};
     // Keep pinned content once in the first viewport, then prevent repeated headers.
     if (hide && state.mode !== 'visible') for (const node of document.querySelectorAll('body *')) {
-      if (state.hidden.has(node)) continue;
+      if (state.hidden.has(node) || (state.region && !state.region.contains?.(node))) continue;
       const computed = getComputedStyle(node);
       const position = computed.position;
       if (position !== 'fixed' && position !== 'sticky') continue;
       // Large pinned scenes/canvases are page content, not repeated navigation.
       const scene = node.getBoundingClientRect();
-      if (scene.width * scene.height > window.innerWidth * window.innerHeight * 0.35 || node.tagName === 'CANVAS' || node.tagName === 'VIDEO') continue;
+      if (scene.width * scene.height > captureBounds.width * captureBounds.height * 0.35 || node.tagName === 'CANVAS' || node.tagName === 'VIDEO') continue;
       if (position === 'sticky') {
         const bounds = node.getBoundingClientRect();
         const insetTop = Number.parseFloat(computed.top);
         const insetBottom = Number.parseFloat(computed.bottom);
-        const pinnedTop = Number.isFinite(insetTop) && Math.abs(bounds.top - insetTop) < 2;
-        const pinnedBottom = Number.isFinite(insetBottom) && Math.abs(bounds.bottom - (window.innerHeight - insetBottom)) < 2;
+        const pinnedTop = Number.isFinite(insetTop) && Math.abs(bounds.top - (captureBounds.y + insetTop)) < 2;
+        const pinnedBottom = Number.isFinite(insetBottom) && Math.abs(bounds.bottom - (captureBounds.y + captureBounds.height - insetBottom)) < 2;
         if (!pinnedTop && !pinnedBottom) continue;
       }
       state.hidden.set(node, { value: node.style.getPropertyValue('visibility'), priority: node.style.getPropertyPriority('visibility') });
       node.style.setProperty('visibility', 'hidden', 'important');
     }
+    if (state.region) return {y:state.region.scrollTop,viewportWidth:state.region.clientWidth,viewportHeight:state.region.clientHeight};
     return { y: state.mode === 'visible' ? 0 : window.scrollY, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight };
+    } catch (error) {
+      return {__captureError: error instanceof Error ? error.message : 'The page could not complete this capture step.'};
+    }
   }, [sessionId, y, hidePinned]),
   assertActive: async tab => {
     const [active] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
@@ -170,6 +193,8 @@ const controller = createCaptureController({
     if (active?.id !== tab.id) throw new Error('The active tab changed. Return to the original tab and try again.');
     if (windowState.state === 'minimized') throw new Error('Restore the browser window before capturing.');
     const sameDocument = await inject(tab, token => {
+    // Return failures as data: Chrome does not reliably propagate injected exceptions.
+    try {
       const state=window.__omnicopyCapture;
       if(state?.token!==token)return false;
       const expected=state.expectedWindow;
@@ -179,6 +204,9 @@ const controller = createCaptureController({
         if(Math.abs(state.region.scrollTop-state.expectedRegionY)>1 || Math.abs(bounds.left+state.region.clientLeft-r.x)>1 || Math.abs(bounds.top+state.region.clientTop-r.y)>1 || state.region.clientWidth!==r.width || state.region.clientHeight!==r.height)throw new Error('The selected panel moved or scrolled during capture. Try again.');
       }
       return true;
+    } catch (error) {
+      return {__captureError: error instanceof Error ? error.message : 'The page could not complete this capture step.'};
+    }
     }, [sessionId]);
     if (!sameDocument) throw new Error('The page navigated or reloaded during capture. Try again on the loaded page.');
   },

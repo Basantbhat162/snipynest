@@ -60,3 +60,7 @@ One bounded local recovery checkpoint for an unfinished Annotator session, disti
 
 **Capture result**:
 The Companion's completed PNG retained for retrying clipboard copy or saving a file. The background copy expires after five minutes or when a replacement capture succeeds. A focused result tab retains its loaded PNG independently until closed, allowing clipboard retry and file saving.
+
+**Quick monitor capture**:
+A single-action image of the entire monitor under the pointer, including its taskbar, ready to paste. Distinct from a region Snip or a browser Page Snip.
+_Avoid_: Quick snip, full page capture

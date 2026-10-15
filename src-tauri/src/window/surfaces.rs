@@ -3,15 +3,26 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindo
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 pub fn is_native_visible(window: &WebviewWindow) -> bool {
-    window
-        .hwnd()
-        .is_ok_and(|hwnd| unsafe { IsWindowVisible(hwnd.0 as _) != 0 })
+    window.hwnd().is_ok_and(|hwnd| unsafe {
+        IsWindowVisible(hwnd.0 as _) != 0 && IsIconic(hwnd.0 as _) == 0
+    })
 }
 
 fn show_quiet(window: &WebviewWindow) {
     if let Ok(hwnd) = window.hwnd() {
         unsafe {
             ShowWindow(hwnd.0 as _, SW_SHOWNOACTIVATE);
+            if window.label() == "capture-pad" {
+                SetWindowPos(
+                    hwnd.0 as _,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                );
+            }
         }
     }
 }
@@ -258,6 +269,7 @@ pub fn set_editor_mode(app: AppHandle, mode: String) -> Result<(), String> {
         .editor_expanded
         .store(expanded, Ordering::Relaxed);
     w.set_fullscreen(false).map_err(|e| e.to_string())?;
+    w.unmaximize().map_err(|e| e.to_string())?;
     w.set_decorations(expanded).map_err(|e| e.to_string())?;
     w.set_skip_taskbar(!expanded).map_err(|e| e.to_string())?;
     w.set_always_on_top(!expanded).map_err(|e| e.to_string())?;
@@ -284,6 +296,8 @@ pub fn set_editor_mode(app: AppHandle, mode: String) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         if mode == "fullscreen" {
             w.set_fullscreen(true).map_err(|e| e.to_string())?;
+        } else {
+            w.maximize().map_err(|e| e.to_string())?;
         }
     } else {
         crate::commands::reposition_sidebar_to_active_display(&w);
@@ -360,4 +374,31 @@ pub fn history_closed(app: &AppHandle) {
     {
         let _ = show_capture_pad(app.clone());
     }
+}
+
+/// Called on the UI thread after sleep/resume or display topology changes.
+/// Do not replay history, rewrite the clipboard or clear an active native-operation guard.
+pub fn recover_after_resume(app: &AppHandle) {
+    for label in ["main", "capture-pad"] {
+        if let Some(window) = app.get_webview_window(label) {
+            if let Ok(hwnd) = window.hwnd() {
+                unsafe {
+                    PostMessageW(hwnd.0 as _, WM_CANCELMODE, 0, 0);
+                }
+            }
+        }
+    }
+    if let Some(pad) = app.get_webview_window("capture-pad") {
+        let state = app.state::<crate::AppState>();
+        if !state.native_drag_active.load(Ordering::Relaxed)
+            && !state.window_move_active.load(Ordering::Relaxed)
+        {
+            let _ = settle_capture_pad(app.clone());
+            if is_native_visible(&pad) {
+                show_quiet(&pad);
+            }
+        }
+    }
+    super::pad_timer::resumed(app);
+    let _ = app.emit("pad-updated", ());
 }

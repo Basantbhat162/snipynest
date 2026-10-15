@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.0 — 2026-10-15 (public preview)
+
+- Crop opens with adjustable full-image edges and corners; Draw area remains available. Fixed shrinking locked ratios, cancelled gestures and maximized editor opening.
+- Added configurable Ctrl+Alt+S quick capture of the monitor under the pointer, copied ready to paste.
+- Added bounded recovery after clipboard contention, sleep/resume and display changes; minimized history no longer suppresses the Capture Pad.
+- Made the Pad a compact horizontal surface with one close control, a thumbnail and an explicit Open history label.
+- Successful multi-image drops clear their selection; cancelled drops preserve it.
+- Fixed lost browser injection errors, stale interrupted capture state and repeating sticky headers inside scrolling panels.
+- Opening the extension no longer copies old captures over newer clipboard contents; asynchronous preview and Copy results keep their image identity.
+- Live Windows hibernate/long-duration use, installer upgrades and actual Brave/Search Console capture remain acceptance checks, not certified by simulated tests.
+
 ## 1.3.1 — 2026-10-13 (public preview)
 
 - Retained result pages now copy only after an explicit Copy image click. A regression proved that loading/focusing the old result page previously attempted to write over newer clipboard content; the new behavior removes that delayed automatic write. This is a reproduced code path, not proof of the reported Wispr interaction.
