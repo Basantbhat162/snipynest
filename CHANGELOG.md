@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.0 — October 16, 2026
+
+- Rebuilt desktop and Companion presentation as a light capture workbench with slate text and teal controls.
+- Thumbnail-first Capture Pad removes repeated labels and separates move, history and close controls.
+- History uses grouped filters and an optional Select toolbar; bulk deletion is explicitly labelled Trash all matching.
+- Editor and settings use responsive controls, semantic groups and clear keyboard focus.
+- Fixed stale Settings saved feedback after resetting shortcuts, and blocked edits during pending saves.
+- No new runtime dependency, remote font or image service. Native capture and storage behavior remain unchanged.
+
+
 ## 1.4.0 — 2026-10-15 (public preview)
 
 - Crop opens with adjustable full-image edges and corners; Draw area remains available. Fixed shrinking locked ratios, cancelled gestures and maximized editor opening.

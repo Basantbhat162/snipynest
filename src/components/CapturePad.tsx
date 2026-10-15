@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Clipboard, GripHorizontal, X } from "lucide-react";
+import { Clipboard, GripHorizontal, X, History } from "lucide-react";
 import { useNativeDrag } from "../lib/useNativeDrag";
 import { useClipPreview } from "../lib/useClipPreview";
 import type { Clip, Preferences } from "../types/clip";
@@ -63,11 +63,15 @@ export function CapturePad() {
     };
   }, []);
   return <main onPointerEnter={() => {hovered.current=true;interaction();}} onPointerLeave={() => {hovered.current=false;interaction();}} onFocus={() => {focused.current=true;interaction();}} onBlur={e => {if (!e.currentTarget.contains(e.relatedTarget as Node)) {focused.current=false;interaction();}}} className={"capture-pad " + (pulse && !preferences?.padPrivacy ? "arrived" : "")} onAnimationEnd={() => setPulse(false)} onKeyDown={e => { if(e.key === "Escape") dismiss(); }}>
-    <header><button className="pad-move" aria-label="Move Capture Pad" title="Drag this bar to move the Pad" {...move}><GripHorizontal size={16}/><span>SnipyNest</span></button><button className="pad-close" aria-label="Dismiss Capture Pad" title="Hide Pad (Escape)" onClick={dismiss}><X size={16}/></button></header>
     <button className="pad-image" {...drag} disabled={busy} title="Click to open history. Drag to share the latest image." aria-label="Open clipboard history or drag latest image" onClick={() => { if(!busy && Date.now()>suppressClickUntil.current) void invoke("open_from_pad").catch(e => setError(String(e))); }}>
-      <span className="pad-preview">{preview && !preferences?.padPrivacy ? <img src={preview} draggable={false} alt="Latest captured image"/> : <Clipboard size={24}/>}</span>
-      <span className="pad-caption"><strong>{busy ? "Sharing…" : preferences?.capturePaused ? "Paused" : count ? `${count > 99 ? "99+" : count} new ${count === 1 ? "image" : "images"}` : "Clipboard"}</strong><span>Open history</span></span>
+      {preview && !preferences?.padPrivacy ? <img src={preview} draggable={false} alt="Latest captured image"/> : <span className="pad-placeholder"><Clipboard size={24}/><span>{preferences?.padPrivacy ? "Capture saved" : "Your captures"}</span></span>}
+      {(busy || preferences?.capturePaused || count > 0) && <span className="pad-badge" role="status" aria-label={busy ? "Sharing image" : preferences?.capturePaused ? "Capture paused" : `${count} new captures`}>{busy ? "Sharing…" : preferences?.capturePaused ? "Paused" : count > 99 ? "99+" : count}</span>}
     </button>
+    <nav className="pad-controls" aria-label="Capture Pad controls">
+      <button className="pad-move" aria-label="Move Capture Pad" title="Drag to move" {...move}><GripHorizontal size={17}/></button>
+      <button className="pad-history" disabled={busy} aria-label="Open clipboard history" title="Open history" onClick={() => {if (busyRef.current) return; void invoke("open_from_pad").catch(e => setError(String(e)));}}><History size={17}/></button>
+      <button className="pad-close" aria-label="Dismiss Capture Pad" title="Hide Pad (Escape)" onClick={dismiss}><X size={17}/></button>
+    </nav>
     {error && <p role="alert" title={error}>{error}</p>}
   </main>;
 }

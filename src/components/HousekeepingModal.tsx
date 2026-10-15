@@ -39,7 +39,7 @@ export function HousekeepingModal({
   }
   return (
     <Dialog title="Settings & storage" onClose={onClose} busy={busy}>
-      <div className="dialog-body">
+      <div className="dialog-body settings-body">
         {draft && (
           <form
             onChange={() => setSaved(false)}
@@ -55,6 +55,8 @@ export function HousekeepingModal({
                 .finally(() => setBusy(false));
             }}
           >
+            <fieldset className="settings-section" disabled={busy}>
+              <legend>Clipboard &amp; startup</legend>
             <label className="preference-toggle">
               <span>
                 Pause clipboard capture
@@ -104,24 +106,34 @@ export function HousekeepingModal({
                 }}
               />
             </label>
-            <h3>Capture &amp; Pad</h3>
+            </fieldset>
+            <fieldset className="settings-section" disabled={busy}>
+              <legend>Capture Pad</legend>
+              <p className="settings-description">A small shelf for your latest image. Choose when it appears and what it shows.</p>
             <label className="preference-toggle"><span>Capture Pad<small>Quiet access to new images; click to open history.</small></span><select value={draft.padMode ?? "arrival"} onChange={e => setDraft({...draft, padMode: e.target.value as Preferences["padMode"]})}><option value="arrival">On new images</option><option value="always">Always visible</option><option value="off">Off</option></select></label>
             <label className="preference-toggle"><span>Hide Pad after<small>The timer pauses while you use the Pad.</small></span><select value={draft.padHideSeconds ?? 8} onChange={e=>{setDraft({...draft,padHideSeconds:Number(e.target.value)});setSaved(false);}}>{[3,5,8,15,30,0].map(seconds=><option key={seconds} value={seconds}>{seconds ? seconds+" seconds" : "Never"}</option>)}</select></label>
             <label className="preference-toggle"><span>Show Pad when closing history</span><input type="checkbox" checked={draft.padOnHistoryClose ?? true} onChange={e=>{setDraft({...draft,padOnHistoryClose:e.target.checked});setSaved(false);}}/></label>
             <label className="preference-toggle"><span>Hide thumbnail previews</span><input type="checkbox" checked={draft.padPrivacy ?? false} onChange={e => setDraft({...draft,padPrivacy:e.target.checked})}/></label>
+            <button type="button" className="button" onClick={() => void invoke("reset_capture_pad").catch(e => setError(String(e)))}>Show / reset Capture Pad</button>
+            </fieldset>
+            <fieldset className="settings-section" disabled={busy}>
+              <legend>Sound &amp; interaction</legend>
             <label className="preference-toggle"><span>Capture sound<small>Play the SnipyNest sound when a new image is saved.</small></span><input type="checkbox" checked={draft.captureSound ?? true} onChange={e => { setDraft({...draft,captureSound:e.target.checked}); setSaved(false); }}/></label>
             <label className="preference-toggle"><span>Hide during drag<small>Otherwise the sidebar becomes translucent.</small></span><input type="checkbox" checked={draft.hideDuringDrag ?? false} onChange={e => setDraft({...draft,hideDuringDrag:e.target.checked})}/></label>
             <label className="preference-toggle"><span>Sound volume: {draft.soundVolume ?? 70}%</span><input aria-label="Capture sound volume" type="range" min="0" max="100" step="5" value={draft.soundVolume ?? 70} onChange={e=>setDraft({...draft,soundVolume:Number(e.target.value)})}/></label>
             <button type="button" className="button" onClick={() => void invoke("preview_capture_sound", {volume:draft.soundVolume ?? 70}).catch(e => setError(String(e)))}>Play sound sample</button>
-            <button type="button" className="button" onClick={() => void invoke("reset_capture_pad").catch(e => setError(String(e)))}>Show / reset Capture Pad</button>
-            <h3>Shortcuts &amp; behavior</h3>
+            </fieldset>
+            <fieldset className="settings-section" disabled={busy}>
+              <legend>Global shortcuts</legend>
+              <p className="settings-description">These shortcuts work while SnipyNest is running in the tray.</p>
             <label className="preference-toggle"><span>Screen snip shortcut</span><input aria-label="Screen snip shortcut" value={draft.snipShortcut ?? "Ctrl+Shift+S"} onChange={e=>setDraft({...draft,snipShortcut:e.target.value})}/></label>
             <label className="preference-toggle"><span>Quick monitor capture<small>Copies the whole screen under your pointer, including its taskbar.</small></span><input aria-label="Quick monitor capture shortcut" value={draft.quickCaptureShortcut ?? "Ctrl+Alt+S"} onChange={e=>setDraft({...draft,quickCaptureShortcut:e.target.value})}/></label>
             <label className="preference-toggle"><span>History shortcut</span><input aria-label="History shortcut" value={draft.historyShortcut ?? "Ctrl+Shift+V"} onChange={e=>setDraft({...draft,historyShortcut:e.target.value})}/></label>
-            <button type="button" className="text-button" onClick={()=>setDraft({...draft,snipShortcut:"Ctrl+Shift+S",historyShortcut:"Ctrl+Shift+V",quickCaptureShortcut:"Ctrl+Alt+S"})}>Reset shortcuts</button>
+            <button type="button" className="text-button" onClick={()=>{setDraft({...draft,snipShortcut:"Ctrl+Shift+S",historyShortcut:"Ctrl+Shift+V",quickCaptureShortcut:"Ctrl+Alt+S"});setSaved(false);}}>Reset shortcuts</button>
+            </fieldset>
             <div className="preferences-save">
               <span role="status">{saved ? "Settings saved" : ""}</span>
-              <button className="button" type="submit" disabled={busy}>
+              <button className="button primary" type="submit" disabled={busy}>
                 {busy ? "Saving…" : "Save settings"}
               </button>
             </div>
@@ -197,7 +209,7 @@ export function HousekeepingModal({
         </dl>
         <h3>Browser companion</h3>
         <p className="muted">
-          Use the SnipyNest Companion in Chrome or Edge to capture a full page.
+          Use the SnipyNest Companion in Brave, Chrome or Edge to capture a page.
           Keep SnipyNest running; the captured image arrives through your
           clipboard.
         </p>

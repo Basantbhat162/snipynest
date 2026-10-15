@@ -1,3 +1,19 @@
+# Verification — SnipyNest 1.5.0 preview, October 16, 2026
+
+## Current redesign
+
+- TypeScript check passed; 92 frontend/Companion tests passed, zero failures. New production-component regressions cover stale Settings saved feedback after Reset shortcuts, edits during a pending save, and the Pad history control during native sharing.
+- Rust suite passed: 39 tests, zero failures, three intentionally ignored tests that mutate the live clipboard. Native capture/storage code is unchanged by this redesign.
+- Core text/action/error palette pairs measured at least 5.48:1 contrast; this does not certify every state or screen-reader interaction.
+- Production frontend build passed. No added runtime dependencies, remote fonts, blur layers or looping animation. Final generated assets are about 26.95 kB CSS and 335.38 kB JavaScript before compression. Bundle size does not establish runtime latency or memory use; no new performance benchmark is claimed.
+- In-app browser fixture: history, search empty-state/recovery, selection disclosure, editor crop entry, keyboard left-edge resize (960 to 959 pixels), Apply crop and Save dispatch worked. The editor fit at 320 x 800 CSS pixels with all eight resize targets and footer actions. Final settings at 320px had no horizontal overflow and full-width select values. A 418 x 880 history view was also inspected.
+- Pad fixture measured 216 x 88 CSS pixels, with an image target and three separate move/history/close controls; history and close dispatched the expected native commands. Existing tests preserve arrival ordering and sharing reentry protection. Browser fixtures simulate native IPC, so these checks do not prove actual cross-app drops or window behavior.
+- Companion popup HTML/CSS was visually inspected over localhost, including the native Capture help disclosure. This is not a live extension capture test; all 47 Companion production-adapter regressions passed as part of the full suite.
+- Browser access disconnected mid-review; a fresh in-app browser connection restored final visual checks. Temporary viewport overrides were reset. Preview screenshots contain only synthetic fixture data and remain local.
+- Live Windows install/upgrade, mixed-DPI windows, actual Brave/Chrome/Edge capture and clipboard access, physical hibernate and long-running use remain unverified. Existing 1.4.0 limitations and the Linux-only glib advisory assessment below still apply. This is an unsigned preview, not a claim that every function is bug-free.
+
+## Previous release
+
 # Verification — SnipyNest 1.4.0 preview, October 15, 2026
 
 ## Current update

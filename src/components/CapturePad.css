@@ -1,29 +1,19 @@
-html:has(.capture-pad), body:has(.capture-pad), #root:has(.capture-pad) {
-  background: transparent !important; height: 100%; overflow: hidden;
-}
-.capture-pad {
-  margin: 3px; height: calc(100% - 6px); box-sizing: border-box;
-  background: #202429; color: #eef2f8; border: 1px solid #414a56;
-  border-radius: 12px; overflow: hidden; user-select: none; position: relative;
-  font: 12px "Segoe UI", sans-serif;
-}
-.capture-pad header { height: 28px; display: flex; align-items: stretch; }
-.capture-pad header button { display: flex; align-items: center; justify-content: center; border: 0; background: transparent; color: inherit; padding: 0; }
-.capture-pad .pad-move { flex: 1; justify-content: flex-start; padding-left: 10px; gap: 6px; cursor: grab; touch-action: none; font-size: 11px; color: #c9d5e3; }
-.capture-pad .pad-move:active { cursor: grabbing; }
-.capture-pad .pad-close { width: 32px; flex-shrink: 0; cursor: pointer; }
-.capture-pad .pad-close:hover { background: #743444; }
-.capture-pad button:focus-visible { outline: 2px solid #a5caff; outline-offset: -3px; }
-.capture-pad .pad-image { border: 0; border-radius: 0; width: 100%; height: calc(100% - 28px); display: flex; align-items: center; gap: 10px; background: transparent; color: inherit; padding: 0 10px 7px; cursor: grab; touch-action: none; text-align: left; }
-.capture-pad .pad-image:hover { background: #2b3440; }
+html:has(.capture-pad), body:has(.capture-pad), #root:has(.capture-pad) { background: transparent !important; height: 100%; overflow: hidden; }
+.capture-pad { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 5px; width: 100%; height: 100%; padding: 5px; border: 1px solid #bccdd2; border-radius: 12px; background: #fff; color: #172b3a; user-select: none; position: relative; overflow: hidden; }
+.capture-pad button { border: 0; padding: 0; color: inherit; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: transparent; min-width: 0; }
+.capture-pad button:focus-visible { outline: 2px solid #116b66; outline-offset: -2px; }
+.capture-pad .pad-image { position: relative; overflow: hidden; background: #e7edf2; cursor: grab; touch-action: none; }
 .capture-pad .pad-image:active { cursor: grabbing; }
-.capture-pad .pad-image:disabled { cursor: progress; opacity: .65; }
-.capture-pad .pad-preview { display: flex; align-items: center; justify-content: center; width: 60px; height: 40px; flex-shrink: 0; background: #14181e; border-radius: 4px; overflow: hidden; color: #b4d1ff; }
-.capture-pad .pad-preview img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
-.capture-pad .pad-caption { display: flex; flex-direction: column; min-width: 0; gap: 3px; }
-.capture-pad .pad-caption strong { font-size: 12px; font-weight: 600; }
-.capture-pad .pad-caption > span { font-size: 11px; color: #b4d1ff; }
-.capture-pad p { position: absolute; bottom: 0; inset-inline: 0; margin: 0; padding: 6px; background: #522332; color: #fff; max-height: 42px; overflow: auto; font-size: 11px; }
-.capture-pad.arrived { animation: pad-arrived 200ms ease-out; }
-@keyframes pad-arrived { from { border-color: #b4d1ff; } to { border-color: #414a56; } }
+.pad-image img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.pad-placeholder { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #526575; }
+.pad-controls { display: grid; grid-template-rows: repeat(3, 1fr); min-height: 0; gap: 1px; }
+.capture-pad .pad-controls button { width: 100%; min-height: 0; }
+.capture-pad .pad-controls button:hover { background: #e3f2ee; color: #116b66; }
+.capture-pad .pad-controls .pad-close:hover { color: #a32d3d; background: #fbeaec; }
+.capture-pad .pad-move { cursor: grab; touch-action: none; }
+.pad-badge { position: absolute; right: 5px; bottom: 5px; min-width: 20px; padding: 2px 6px; border-radius: 5px; background: #116b66; color: #fff; font-size: 11px; font-weight: 650; line-height: 16px; }
+.capture-pad > p { position: absolute; inset: 5px 44px 5px 5px; padding: 7px; margin: 0; font-size: 11px; line-height: 1.3; color: #862334; background: #fff0f2; overflow: auto; user-select: text; border-radius: 5px; }
+.capture-pad.arrived { animation: pad-arrival 180ms ease-out; }
+@keyframes pad-arrival { from { opacity: .6; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .capture-pad.arrived { animation: none; } }
+@media (forced-colors: active) { .capture-pad { border-color: CanvasText; } .pad-badge { border: 1px solid CanvasText; } }
