@@ -1,4 +1,4 @@
-# SnipyNest Companion 1.5.0
+# SnipyNest Companion 1.5.1
 
 Capture supported webpages as PNG, copy, or save the completed file. SnipyNest desktop must be running with monitoring enabled to collect the clipboard image. Copied does not mean desktop storage acknowledged it. Native Messaging is not implemented.
 
@@ -40,3 +40,7 @@ Scroll offsets are measured after settling. Fractional bottom rounding is tolera
 This is a public preview. Production-adapter regressions do not certify actual Brave/Chrome/Edge clipboard permission behavior. Browser automation could inspect its inventory, but policy blocked access to extension management to reload and verify this build. No claim of all-website support or live certification is made.
 
 Opening the popup does not automatically copy an older retained result over your current clipboard. Use **Copy image** for that result; a new capture started in the popup can still finish copying automatically while focused. Interrupted capture state is restored before retrying. If a page has several similar scrolling panels, use **Choose scrolling panel** to select the intended content.
+
+### Appearance
+
+Choose Light or Dark from the Theme selector in the popup header. The selection persists for extension pages independently of the desktop app. Screenshots retain their original colors.

@@ -4,6 +4,7 @@ import { HardDrive, Trash2 } from "lucide-react";
 import type { StorageStats, Preferences } from "../types/clip";
 import { formatBytes } from "../lib/format";
 import { Dialog } from "./Dialog";
+import { ThemeChoice } from "./ThemeChoice";
 export function HousekeepingModal({
   stats,
   preferences,
@@ -40,6 +41,7 @@ export function HousekeepingModal({
   return (
     <Dialog title="Settings & storage" onClose={onClose} busy={busy}>
       <div className="dialog-body settings-body">
+        <ThemeChoice />
         {draft && (
           <form
             onChange={() => setSaved(false)}

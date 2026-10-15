@@ -30,6 +30,7 @@ function fixture(save) {
     "lucide-react": { HardDrive: "icon", Trash2: "icon" },
     "../lib/format": { formatBytes: String },
     "./Dialog": { Dialog: "dialog" },
+    "./ThemeChoice": { ThemeChoice: "theme-choice" },
   };
   const exports = {};
   new Function("require", "exports", compiled)(name => {
