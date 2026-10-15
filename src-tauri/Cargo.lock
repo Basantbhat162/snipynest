@@ -2465,7 +2465,7 @@ dependencies = [
 name = "omnicopy"
 version = "1.5.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "directories",
  "image",
