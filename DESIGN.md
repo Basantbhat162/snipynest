@@ -41,3 +41,9 @@ A decorative glass card and floating gradients would compete with screenshots an
 Keyboard focus, accessible names and disabled states are required. Keep all controls reachable at 320px width, and keep crop guides out of exported pixels. Preserve clipboard, native dragging, draft recovery and capture lifecycle logic. Native APIs remain separate from presentation. Browser fixtures verify layout and command dispatch, not actual Windows dragging, DPI or hibernate behavior.
 
 Design guidance: Anthropic frontend-design skill, read October 16, 2026: https://github.com/anthropics/claude-code/tree/main/plugins/frontend-design
+
+## Light and Dark appearance
+
+Two explicit themes, saved immediately: Light preserves the paper palette; Dark uses #121b22 canvas, #1b2730 panels, #edf3f7 text, #b4c4cf secondary text and #83d7c6 teal actions with #102b29 foreground. Theme roles cover history, settings, Pad, editor and Companion without altering captured pixels. Desktop windows share the same stored theme; extension pages store their own choice.
+
+Category navigation is one row: text content filters followed by accessible pin and trash icon controls. Trash count is in its accessible name and tooltip. At narrow widths content filters can scroll without moving the two utility controls.

@@ -1,3 +1,16 @@
+# Verification — SnipyNest 1.5.1 preview, October 16, 2026
+
+- Optimized Windows NSIS build passed the local-path privacy check. Installer: 2,725,407 bytes; Companion ZIP: 25,271 bytes with 14 source files and two license notices verified. Packages were not installed during this session.
+- Core dark text/action/error contrast pairs measured at least 6.75:1; this is not a full accessibility certification. Public-file scan: 165 indexed files, zero findings.
+- TypeScript and production frontend build passed. Frontend/Companion tests: 95 passed, zero failures. New shared-theme tests exercise persisted restore, sibling-window storage events, invalid values, listener cleanup, selector persistence and failed-storage feedback.
+- Rust tests passed: 39 passed, three live-clipboard tests intentionally ignored. Native behavior is unchanged; this run preceded the version-only bump.
+- Browser fixture checked Light/Dark switching, persistence after reload, Pinned/Trash navigation and one-row filters at 320px. Settings dialog had equal client/scroll width (290px), with no horizontal overflow. Light history was inspected at 380px. Companion theme control and dark layout were inspected over localhost, not an installed extension.
+- Dark editor and Capture Pad were visually inspected with a synthetic image: the original image colors stayed intact, all eight crop handles remained visible, and the Pad retained its three controls.
+- Desktop windows use origin-local storage events for appearance only. Browser extension pages have a separate saved preference. Image pixels and clipboard ingestion are unchanged.
+- Native installed upgrade, actual Brave extension operation, multi-monitor and hibernate acceptance remain unverified. This is an unsigned preview.
+
+## Previous release
+
 # Verification — SnipyNest 1.5.0 preview, October 16, 2026
 
 ## Current redesign
