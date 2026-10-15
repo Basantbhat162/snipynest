@@ -2,6 +2,8 @@
 
 ## Current redesign
 
+- Windows NSIS build and local-path privacy check passed. Installer: 2,724,693 bytes. Companion ZIP: 24,017 bytes; all 13 extension source files plus two license notices matched committed content, and archive integrity passed. SHA-256 checksums were generated. These packages were not installed during this session.
+
 - TypeScript check passed; 92 frontend/Companion tests passed, zero failures. New production-component regressions cover stale Settings saved feedback after Reset shortcuts, edits during a pending save, and the Pad history control during native sharing.
 - Rust suite passed: 39 tests, zero failures, three intentionally ignored tests that mutate the live clipboard. Native capture/storage code is unchanged by this redesign.
 - Core text/action/error palette pairs measured at least 5.48:1 contrast; this does not certify every state or screen-reader interaction.
