@@ -3,6 +3,7 @@ pub mod commands;
 pub mod drag_drop;
 pub mod lifecycle;
 pub mod preferences;
+pub mod screen_capture;
 pub mod sound;
 pub mod storage;
 pub mod window;
@@ -28,6 +29,7 @@ pub struct AppState {
     pub data_dir: PathBuf,
     pub editor_expanded: Arc<AtomicBool>,
     pub pad_unread: std::sync::atomic::AtomicUsize,
+    pub image_arrivals: Arc<parking_lot::Mutex<clipboard::arrival::ImageArrivals>>,
     pub db: Arc<Database>,
     pub stager: Arc<DragDropStager>,
     pub is_pinned: Arc<AtomicBool>,
@@ -89,6 +91,10 @@ pub fn run() {
     let drag_on_blur = native_drag_active.clone();
     let listener_holder = Arc::new(RwLock::new(None));
 
+    let image_arrivals = Arc::new(parking_lot::Mutex::new(
+        clipboard::arrival::ImageArrivals::default(),
+    ));
+    let arrivals_for_worker = image_arrivals.clone();
     let db_for_listener = db.clone();
     let app_handle_holder = Arc::new(RwLock::new(None::<AppHandle>));
     let app_handle_for_listener = app_handle_holder.clone();
@@ -102,7 +108,7 @@ pub fn run() {
     // Snapshot clipboard events promptly; encoding and SQLite work live on an
     // event-driven worker with a strict 64 MB pending payload budget.
     std::thread::spawn(move || {
-        let mut arrivals = clipboard::arrival::ImageArrivals::default();
+        let arrivals = arrivals_for_worker;
         // Seed fingerprints only: restoring recent history after restart stays quiet.
         if let Ok(clips) = db_for_listener.query_clips(&storage::ClipFilter {
             clip_type: Some("image".into()),
@@ -110,7 +116,7 @@ pub fn run() {
             ..Default::default()
         }) {
             for clip in clips.iter().rev() {
-                arrivals.should_notify(&clip.hash, None);
+                arrivals.lock().should_notify(&clip.hash, None);
             }
         }
         while let Ok((item, monitor)) = capture_receiver.recv() {
@@ -156,7 +162,9 @@ pub fn run() {
                             *text = text.chars().take(4096).collect();
                         }
                         if clip.clip_type == ClipType::Image
-                            && arrivals.should_notify(&clip.hash, clip.source_app.as_deref())
+                            && arrivals
+                                .lock()
+                                .should_notify(&clip.hash, clip.source_app.as_deref())
                         {
                             let app2 = app.clone();
                             let arrival = clip.clone();
@@ -199,7 +207,17 @@ pub fn run() {
             if let Some(app) = app_handle_for_hotkey.read().as_ref() {
                 let app2 = app.clone();
                 let _ = app.run_on_main_thread(move || {
-                    if action == 1 {
+                    if action == 0 {
+                        window::recover_after_resume(&app2);
+                    } else if action == 4 {
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(error) = screen_capture::capture_monitor(app2.clone()).await
+                            {
+                                let _ = app2
+                                    .emit("capture-error", serde_json::json!({"message":error}));
+                            }
+                        });
+                    } else if action == 1 {
                         tauri::async_runtime::spawn(async move {
                             if let Err(error) = commands::capture_screen(app2.clone()).await {
                                 let _ = app2
@@ -215,6 +233,7 @@ pub fn run() {
         capture_paused.clone(),
         preferences.snip_shortcut.clone(),
         preferences.history_shortcut.clone(),
+        preferences.quick_capture_shortcut.clone(),
     );
 
     *listener_holder.write() = Some(listener);
@@ -223,6 +242,7 @@ pub fn run() {
         data_dir,
         editor_expanded: Arc::new(AtomicBool::new(false)),
         pad_unread: std::sync::atomic::AtomicUsize::new(0),
+        image_arrivals,
         db,
         stager,
         is_pinned: is_pinned.clone(),
@@ -444,6 +464,7 @@ pub fn run() {
             commands::start_native_drag,
             commands::export_clips_with_picker,
             commands::capture_screen,
+            screen_capture::capture_monitor,
             commands::get_preferences,
             commands::update_preferences,
         ])

@@ -2,17 +2,21 @@ const captureButton = document.getElementById('captureBtn');
 const cancelButton = document.getElementById('cancelBtn');
 const statusText = document.getElementById('status');
 const progress = document.getElementById('progress');
-let resultBlob;
-let resultUrl;
+let loadedResult;
+let resultRequest = 0;
 let copying = false;
-let resultId;
 let activeTab;
 let autoCopiedResult;
+let pendingCapture = false;
+let captureGeneration = 0;
 
 function render(status) {
   if (activeTab && status.tabId && (status.tabId !== activeTab.id || status.sourceUrl !== activeTab.url)) {
     status = status.busy ? {...status,message:'Capturing another tab. Return there to finish.'} : {phase:'idle',message:'Ready to capture this page.'};
   }
+  // Reopening a popup is not permission to overwrite newer clipboard content.
+  const copyForThisCapture = pendingCapture && status.phase === 'complete';
+  if (['complete', 'error', 'cancelled'].includes(status.phase)) pendingCapture = false;
   captureButton.disabled = Boolean(status.busy);
   captureButton.textContent = status.busy ? 'Capturing…' : status.phase === 'error' ? 'Try again' : 'Capture';
   cancelButton.hidden = !status.busy;
@@ -26,17 +30,19 @@ function render(status) {
   statusText.setAttribute('aria-atomic', 'true');
   document.getElementById('captureMode').disabled = Boolean(status.busy);
   if (status.phase === 'error') void showResult().catch(()=>{});
-  if (status.resultAvailable) void showResult().then(() => {
-    if (!status.partial && status.copied === false && document.hasFocus() && autoCopiedResult !== resultId) {
-      autoCopiedResult = resultId; return copyResult();
+  if (status.resultAvailable) void showResult().then(loaded => {
+    if (loaded && copyForThisCapture && !status.partial && status.copied === false && document.hasFocus() && autoCopiedResult !== loaded.resultId) {
+      autoCopiedResult = loaded.resultId; return copyResult(loaded);
     }
   }).catch(error => { statusText.textContent = String(error); });
 }
 
 captureButton.addEventListener('click', async () => {
+  captureGeneration++;
+  pendingCapture = true;
   render({ busy: true, phase: 'preparing', message: 'Preparing the page…' });
   document.getElementById('result').hidden = true;
-  resultBlob = null; resultUrl = null;
+  loadedResult = null; resultRequest++;
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     activeTab = tab;
@@ -45,37 +51,51 @@ captureButton.addEventListener('click', async () => {
   } catch (error) { render({ phase: 'error', message: String(error) }); }
 });
 async function showResult() {
+  const request = ++resultRequest;
+  const generation = captureGeneration;
   const result = await chrome.runtime.sendMessage({ action: 'result-preview' });
   if (!result?.success) throw new Error(result?.error || 'Capture an image first.');
-  resultId = result.resultId;
-  if (result.url !== resultUrl) {
+  let blob;
+  if (loadedResult && loadedResult.resultId === result.resultId && loadedResult.url === result.url) {
+    blob = loadedResult.blob;
+  } else {
     const response = await fetch(result.url);
     if (!response.ok) throw new Error('The image expired. Capture it again.');
-    resultBlob = await response.blob(); resultUrl = result.url;
+    blob = await response.blob();
   }
-  document.getElementById('preview').src = result.url;
-  document.getElementById('saveResult').href = result.url;
+  if (request !== resultRequest || generation !== captureGeneration) return null;
+  const loaded = {resultId:result.resultId,url:result.url,blob};
+  loadedResult = loaded;
+  document.getElementById('preview').src = loaded.url;
+  document.getElementById('saveResult').href = loaded.url;
   document.getElementById('result').hidden = false;
+  return loaded;
 }
-async function copyResult() {
+async function copyResult(snapshot) {
   if (copying) return;
   copying = true;
   const button = document.getElementById('copyResult');
   button.disabled = true;
+  let target = snapshot || loadedResult;
   try {
-    // Invoke write during the user's click, in this focused extension document.
-    // A promise-valued ClipboardItem preserves activation while fetching the PNG.
-    const blob = resultBlob || showResult().then(() => resultBlob);
+    // Keep write inside click activation; retain the copied result's own identity.
+    const blob = target ? target.blob : showResult().then(loaded => {
+      if (!loaded) throw new Error('The capture changed. Try Copy image again.');
+      target = loaded;
+      return loaded.blob;
+    });
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-    statusText.textContent = 'Copied to clipboard.';
-    statusText.dataset.state = 'complete';
-    void chrome.runtime.sendMessage({action:'copy-complete',resultId}).catch(()=>{});
+    if (loadedResult?.resultId === target.resultId) {
+      statusText.textContent = 'Copied to clipboard.';
+      statusText.dataset.state = 'complete';
+    }
+    void chrome.runtime.sendMessage({action:'copy-complete',resultId:target.resultId}).catch(()=>{});
   } catch (error) {
     statusText.dataset.state = 'error';
     statusText.textContent = `Copy failed. Keep this window active and try Copy image, or Save PNG. ${error.message || error}`;
   } finally { copying = false; button.disabled = false; }
 }
-document.getElementById('copyResult').addEventListener('click', copyResult);
+document.getElementById('copyResult').addEventListener('click', () => copyResult());
 cancelButton.addEventListener('click', async () => {
   cancelButton.disabled = true;
   try { await chrome.runtime.sendMessage({ action: 'cancel-capture' }); statusText.textContent = 'Cancelling and restoring the page…'; }
@@ -85,13 +105,16 @@ chrome.runtime.onMessage.addListener(message => {
   if (message.target === 'popup' && message.action === 'capture-status') render(message.status);
 });
 void (async()=>{
+  const generation = captureGeneration;
   try {
     activeTab = (await chrome.tabs?.query({active:true,currentWindow:true}))?.[0];
     const settings = await chrome.runtime.sendMessage({action:'capture-settings'});
+    if (generation !== captureGeneration) return;
     if (['full','visible','feed','region'].includes(settings?.mode)) document.getElementById('captureMode').value=settings.mode;
     document.getElementById('slowCapture').checked=settings?.slow === true;
-    render(await chrome.runtime.sendMessage({action:'capture-status'}));
-  } catch {render({phase:'error',message:'Reload the extension to start the capture service.'});}
+    const status = await chrome.runtime.sendMessage({action:'capture-status'});
+    if (generation === captureGeneration) render(status);
+  } catch {if (generation === captureGeneration) render({phase:'error',message:'Reload the extension to start the capture service.'});}
 })();
 // The service worker can restart while the offscreen result remains available.
 void showResult().catch(() => {});

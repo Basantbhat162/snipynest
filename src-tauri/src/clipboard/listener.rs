@@ -19,7 +19,26 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use super::win32::{read_clipboard_content, ClipboardItem};
 
 const WM_UPDATE_SHORTCUTS: u32 = WM_USER + 102;
+const WM_RECOVER_LISTENER: u32 = WM_USER + 103;
+// Power/display broadcasts are sent directly to WndProc, not returned by GetMessage.
+// Forward them to the ordinary message loop so recovery cannot re-enter clipboard work.
+unsafe extern "system" fn listener_proc(
+    hwnd: HWND,
+    message: u32,
+    wparam: usize,
+    lparam: isize,
+) -> isize {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{WM_DISPLAYCHANGE, WM_POWERBROADCAST};
+    if (message == WM_POWERBROADCAST && matches!(wparam, 7 | 18)) || message == WM_DISPLAYCHANGE {
+        PostMessageW(hwnd, WM_RECOVER_LISTENER, 0, 0);
+        if message == WM_POWERBROADCAST {
+            return 1;
+        }
+    }
+    DefWindowProcW(hwnd, message, wparam, lparam)
+}
 type ShortcutRequest = (
+    String,
     String,
     String,
     std::sync::mpsc::Sender<Result<(), String>>,
@@ -65,6 +84,7 @@ impl ClipboardListener {
         paused: Arc<AtomicBool>,
         snip: String,
         history: String,
+        quick: String,
     ) -> Self
     where
         F: Fn(ClipboardItem, (i32, i32)) + Send + 'static,
@@ -82,12 +102,17 @@ impl ClipboardListener {
         // the worker snapshots the current sequence, never a stale queued payload.
         let (snapshots, snapshot_requests) = std::sync::mpsc::sync_channel::<(i32, i32)>(1);
         let reader_running = running.clone();
+        let recover_requested = Arc::new(AtomicBool::new(false));
+        let recover_reader = recover_requested.clone();
         let initial_sequence = unsafe { GetClipboardSequenceNumber() };
         let reader = thread::spawn(move || {
             let mut gate = super::arrival::SequenceGate::new(initial_sequence);
             while let Ok(cursor) = snapshot_requests.recv() {
                 if !reader_running.load(Ordering::Relaxed) {
                     break;
+                }
+                if recover_reader.swap(false, Ordering::SeqCst) {
+                    gate.resume();
                 }
                 let sequence = unsafe { GetClipboardSequenceNumber() };
                 if gate.attempt(sequence, paused.load(Ordering::Relaxed)) {
@@ -102,6 +127,7 @@ impl ClipboardListener {
             let mut current = [
                 parse_shortcut(&snip).unwrap(),
                 parse_shortcut(&history).unwrap(),
+                parse_shortcut(&quick).unwrap(),
             ];
             while running_clone.load(Ordering::Relaxed) {
                 unsafe {
@@ -111,7 +137,7 @@ impl ClipboardListener {
 
                     let wc = WNDCLASSW {
                         style: 0,
-                        lpfnWndProc: Some(DefWindowProcW),
+                        lpfnWndProc: Some(listener_proc),
                         cbClsExtra: 0,
                         cbWndExtra: 0,
                         hInstance: hinstance,
@@ -164,7 +190,7 @@ impl ClipboardListener {
                         continue;
                     }
                     for (index, (modifiers, key)) in current.iter().enumerate() {
-                        if RegisterHotKey(hwnd, index as i32 + 1, *modifiers, *key) == 0 {
+                        if RegisterHotKey(hwnd, [1, 2, 4][index], *modifiers, *key) == 0 {
                             *error_in_thread.lock()=Some("A shortcut is used by another app. Change it in Settings or use the tray.".into());
                         }
                     }
@@ -184,28 +210,36 @@ impl ClipboardListener {
                         }
 
                         if msg.message == WM_UPDATE_SHORTCUTS {
-                            while let Ok((snip, history, reply, pending)) = receiver.try_recv() {
+                            while let Ok((snip, history, quick, reply, pending)) =
+                                receiver.try_recv()
+                            {
                                 let pending = pending.lock();
                                 if !*pending {
                                     continue;
                                 }
-                                let next = parse_shortcut(&snip)
-                                    .and_then(|a| parse_shortcut(&history).map(|b| [a, b]));
+                                let next = parse_shortcut(&snip).and_then(|a| {
+                                    parse_shortcut(&history)
+                                        .and_then(|b| parse_shortcut(&quick).map(|c| [a, b, c]))
+                                });
                                 let result = next.and_then(|next| {
                                     UnregisterHotKey(hwnd, 1);
                                     UnregisterHotKey(hwnd, 2);
                                     UnregisterHotKey(hwnd, 3);
+                                    UnregisterHotKey(hwnd, 4);
                                     let first = RegisterHotKey(hwnd, 1, next[0].0, next[0].1) != 0;
                                     let second = RegisterHotKey(hwnd, 2, next[1].0, next[1].1) != 0;
-                                    if first && second {
+                                    let third = RegisterHotKey(hwnd, 4, next[2].0, next[2].1) != 0;
+                                    if first && second && third {
                                         current = next;
                                         *error_in_thread.lock() = None;
                                         Ok(())
                                     } else {
                                         UnregisterHotKey(hwnd, 1);
                                         UnregisterHotKey(hwnd, 2);
+                                        UnregisterHotKey(hwnd, 4);
                                         RegisterHotKey(hwnd, 1, current[0].0, current[0].1);
                                         RegisterHotKey(hwnd, 2, current[1].0, current[1].1);
+                                        RegisterHotKey(hwnd, 4, current[2].0, current[2].1);
                                         Err("Shortcut conflict. Previous bindings were retained."
                                             .into())
                                     }
@@ -216,11 +250,25 @@ impl ClipboardListener {
                                 let _ = reply.send(result);
                             }
                         }
+                        if msg.message == WM_RECOVER_LISTENER {
+                            RemoveClipboardFormatListener(hwnd);
+                            if AddClipboardFormatListener(hwnd) == 0 {
+                                *error_in_thread.lock() = Some("Clipboard notifications are unavailable; checking for changes periodically.".into());
+                            }
+                            if SetTimer(hwnd, 1, 500, None) == 0 {
+                                break;
+                            }
+                            recover_requested.store(true, Ordering::SeqCst);
+                            on_hotkey(0); // Reconcile Pad timers/geometry without replaying old content.
+                        }
                         if msg.message == WM_HOTKEY {
                             on_hotkey(msg.wParam);
                         }
 
-                        if msg.message == WM_CLIPBOARDUPDATE || msg.message == WM_TIMER {
+                        if msg.message == WM_CLIPBOARDUPDATE
+                            || msg.message == WM_TIMER
+                            || msg.message == WM_RECOVER_LISTENER
+                        {
                             let mut cursor = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
                             windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut cursor);
                             let _ = snapshots.try_send((cursor.x, cursor.y));
@@ -233,6 +281,7 @@ impl ClipboardListener {
                     UnregisterHotKey(hwnd, 1);
                     UnregisterHotKey(hwnd, 2);
                     UnregisterHotKey(hwnd, 3);
+                    UnregisterHotKey(hwnd, 4);
                     KillTimer(hwnd, 1);
                     RemoveClipboardFormatListener(hwnd);
                     DestroyWindow(hwnd);
@@ -255,9 +304,15 @@ impl ClipboardListener {
         }
     }
 
-    pub fn update_shortcuts(&self, snip: String, history: String) -> Result<(), String> {
+    pub fn update_shortcuts(
+        &self,
+        snip: String,
+        history: String,
+        quick: String,
+    ) -> Result<(), String> {
         parse_shortcut(&snip)?;
         parse_shortcut(&history)?;
+        parse_shortcut(&quick)?;
         let hwnd = self
             .window_hwnd
             .lock()
@@ -265,7 +320,7 @@ impl ClipboardListener {
         let (send, receive) = std::sync::mpsc::channel();
         let pending = Arc::new(parking_lot::Mutex::new(true));
         self.updates
-            .send((snip, history, send, pending.clone()))
+            .send((snip, history, quick, send, pending.clone()))
             .map_err(|_| "Shortcut listener stopped")?;
         if unsafe { PostMessageW(hwnd as HWND, WM_UPDATE_SHORTCUTS, 0, 0) } == 0 {
             *pending.lock() = false;
@@ -305,6 +360,71 @@ impl Drop for ClipboardListener {
 #[cfg(test)]
 mod shortcut_tests {
     use super::*;
+    #[test]
+    fn power_and_display_broadcasts_queue_recovery_without_clipboard_access() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            PeekMessageW, SendMessageW, UnregisterClassW, PM_REMOVE, WM_DISPLAYCHANGE,
+            WM_POWERBROADCAST,
+        };
+        unsafe {
+            let instance = GetModuleHandleW(std::ptr::null());
+            let name: Vec<u16> = "SnipyNestRecoveryRegressionClass\0"
+                .encode_utf16()
+                .collect();
+            let class = WNDCLASSW {
+                lpfnWndProc: Some(listener_proc),
+                hInstance: instance,
+                lpszClassName: name.as_ptr(),
+                ..std::mem::zeroed()
+            };
+            assert_ne!(RegisterClassW(&class), 0);
+            let hwnd = CreateWindowExW(
+                0,
+                name.as_ptr(),
+                std::ptr::null(),
+                WS_OVERLAPPED,
+                0,
+                0,
+                0,
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                instance,
+                std::ptr::null(),
+            );
+            assert!(!hwnd.is_null());
+            let mut message: MSG = std::mem::zeroed();
+            let mut results = Vec::new();
+            for (event, value) in [
+                (WM_POWERBROADCAST, 18),
+                (WM_POWERBROADCAST, 7),
+                (WM_DISPLAYCHANGE, 0),
+            ] {
+                SendMessageW(hwnd, event, value, 0);
+                results.push(
+                    PeekMessageW(
+                        &mut message,
+                        hwnd,
+                        WM_RECOVER_LISTENER,
+                        WM_RECOVER_LISTENER,
+                        PM_REMOVE,
+                    ) != 0,
+                );
+            }
+            SendMessageW(hwnd, WM_POWERBROADCAST, 4, 0);
+            let suspend_queued = PeekMessageW(
+                &mut message,
+                hwnd,
+                WM_RECOVER_LISTENER,
+                WM_RECOVER_LISTENER,
+                PM_REMOVE,
+            ) != 0;
+            DestroyWindow(hwnd);
+            UnregisterClassW(name.as_ptr(), instance);
+            assert_eq!(results, vec![true, true, true]);
+            assert!(!suspend_queued);
+        }
+    }
     #[test]
     fn validates_bindings() {
         assert_eq!(parse_shortcut("Ctrl+Shift+S").unwrap().1, 0x53);

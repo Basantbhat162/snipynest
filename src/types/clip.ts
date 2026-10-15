@@ -41,6 +41,7 @@ export interface Preferences {
   trashRetentionDays: number;
   startAtLogin: boolean;
   snipShortcut?: string;
+  quickCaptureShortcut?: string;
   historyShortcut?: string;
   padMode?: "arrival" | "always" | "off";
   padPrivacy?: boolean;

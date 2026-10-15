@@ -40,3 +40,6 @@ Thumbs.db
 
 # Unused starter artwork kept locally
 /public/
+
+# Private capture diagnostics supplied during local debugging
+/extension logs/

@@ -16,7 +16,7 @@ test('retry Copy writes PNG from the focused popup, not the offscreen document',
   globalThis.fetch = async () => ({ok:true, blob:async()=>new Blob(['png'],{type:'image/png'})});
   globalThis.chrome = {runtime:{onMessage:{addListener(){}},sendMessage:async ({action}) => {
     if(action === 'retry-copy') return {success:false,error:'Document is not focused'};
-    if(action === 'result-preview') return {success:true,url:'blob:extension/result'};
+    if(action === 'result-preview') return {success:true,url:'blob:extension/result',resultId:'image-1'};
     return {phase:'idle'};
   }}, commands:{getAll:async()=>[]}};
   await import('../popup.js');

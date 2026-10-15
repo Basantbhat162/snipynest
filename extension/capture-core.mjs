@@ -3,7 +3,7 @@ export const CAPTURE_LIMITS = Object.freeze({ maxPixels: 32_000_000, maxDimensio
 
 export function validateMetrics(metrics) {
   for (const field of ['viewportWidth', 'viewportHeight', 'totalHeight', 'devicePixelRatio']) {
-    if (!Number.isFinite(metrics[field]) || metrics[field] <= 0) throw new Error('The page returned invalid dimensions. Reload it and try again.');
+    if (!Number.isFinite(metrics?.[field]) || metrics?.[field] <= 0) throw new Error('The page returned invalid dimensions. Reload it and try again.');
   }
   const width = Math.round(metrics.viewportWidth * metrics.devicePixelRatio);
   const height = Math.round(Math.max(metrics.totalHeight, metrics.viewportHeight) * metrics.devicePixelRatio);
@@ -52,11 +52,16 @@ export function createCaptureController(adapter) {
           checkCancelled();
           if(adapter.now()-startedAt>90_000) throw new Error("Capture timed out. Choose Visible area or a shorter section.");
           if (frameCount >= CAPTURE_LIMITS.maxFrames) throw new Error('The page did not finish scrolling. Try a smaller page.');
-          let position = await adapter.scroll(tab, covered, frameCount > 0);
+          const readPosition = async () => {
+            const reply = await adapter.scroll(tab, covered, frameCount > 0);
+            if (!reply || typeof reply !== 'object') throw new Error('The page did not respond while scrolling. Reload it and try again, or use Visible area.');
+            return reply;
+          };
+          let position = await readPosition();
           for (let retry = 0; retry < 2 && position.y + metrics.viewportHeight <= covered; retry++) {
             checkCancelled();
             await adapter.sleep(250 * (retry + 1));
-            position = await adapter.scroll(tab, covered, frameCount > 0);
+            position = await readPosition();
           }
           // Browsers can clamp the last offset to a fractional CSS pixel.
           const tolerance = 1 / Math.max(1, metrics.devicePixelRatio);

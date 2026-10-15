@@ -28,6 +28,7 @@ import { ClipCard } from "./components/ClipCard";
 import { MultiDropBar } from "./components/MultiDropBar";
 import { HousekeepingModal } from "./components/HousekeepingModal";
 import { AnnotatorModal } from "./components/AnnotatorModal";
+import { selectionAfterDrop } from "./lib/selection";
 import { readDraft } from "./annotation/drafts";
 import { Dialog } from "./components/Dialog";
 import { HistoryController, PAGE_SIZE } from "./lib/history";
@@ -265,7 +266,10 @@ export function App() {
     if (busy || !ids.length) return;
     setBusy(true);
     dragPending.current = true;
-    void invoke("start_native_drag", { clipIds: ids }).catch(report).finally(() => { dragPending.current = false; setBusy(false); });
+    const selectionAtStart = selectedIds;
+    void invoke<boolean>("start_native_drag", { clipIds: ids }).then(dropped => {
+      setSelectedIds(current => selectionAfterDrop(current, selectionAtStart, ids, dropped));
+    }).catch(report).finally(() => { dragPending.current = false; setBusy(false); });
   }
   async function exportSelected() {
     await run(async () => {

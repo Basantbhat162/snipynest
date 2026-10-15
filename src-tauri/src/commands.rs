@@ -392,10 +392,25 @@ pub async fn capture_screen(app: AppHandle) -> Result<(), String> {
     {
         return Err("Finish the current drag before snipping".into());
     }
-    if let Some(window) = app.get_webview_window("main") {
-        hide_history_window(&window)?;
-    }
-    let _ = crate::window::hide_pad_native(&app);
+    let (send, receive) = std::sync::mpsc::channel();
+    let handle = app.clone();
+    app.run_on_main_thread(move || {
+        let result = (|| {
+            if let Some(window) = handle.get_webview_window("main") {
+                hide_history_window(&window)?;
+            }
+            if handle.get_webview_window("capture-pad").is_some() {
+                crate::window::hide_pad_native(&handle)?;
+            }
+            Ok::<(), String>(())
+        })();
+        let _ = send.send(result);
+    })
+    .map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || receive.recv())
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|_| "Snip preparation did not complete")??;
     tauri::async_runtime::spawn_blocking(|| {
         use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
         for _ in 0..100 {
@@ -445,12 +460,14 @@ fn update_preferences_inner(
     preferences.validate()?;
     let mut current = state.preferences.write();
     let bindings_changed = current.snip_shortcut != preferences.snip_shortcut
-        || current.history_shortcut != preferences.history_shortcut;
+        || current.history_shortcut != preferences.history_shortcut
+        || current.quick_capture_shortcut != preferences.quick_capture_shortcut;
     if bindings_changed {
         if let Some(listener) = state._listener.read().as_ref() {
             listener.update_shortcuts(
                 preferences.snip_shortcut.clone(),
                 preferences.history_shortcut.clone(),
+                preferences.quick_capture_shortcut.clone(),
             )?;
         }
     }
@@ -461,6 +478,7 @@ fn update_preferences_inner(
                     let _ = listener.update_shortcuts(
                         current.snip_shortcut.clone(),
                         current.history_shortcut.clone(),
+                        current.quick_capture_shortcut.clone(),
                     );
                 }
             }
@@ -473,6 +491,7 @@ fn update_preferences_inner(
                 let _ = listener.update_shortcuts(
                     current.snip_shortcut.clone(),
                     current.history_shortcut.clone(),
+                    current.quick_capture_shortcut.clone(),
                 );
             }
         }
@@ -486,10 +505,19 @@ fn update_preferences_inner(
         .store(preferences.capture_paused, Ordering::Relaxed);
     *current = preferences.clone();
     drop(current);
-    if preferences.pad_mode == "off" {
-        let _ = crate::window::hide_pad_native(&app);
-    } else if preferences.pad_mode == "always" {
-        let _ = crate::window::show_capture_pad(app.clone());
+    let handle = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        let mode = handle.state::<AppState>().preferences.read().pad_mode.clone();
+        let result = match mode.as_str() {
+            "off" if handle.get_webview_window("capture-pad").is_some() => crate::window::hide_pad_native(&handle),
+            "always" => crate::window::show_capture_pad(handle.clone()),
+            _ => Ok(()),
+        };
+        if let Err(error) = result {
+            let _ = handle.emit("capture-error", serde_json::json!({"message":format!("Settings saved, but Capture Pad could not update: {error}")}));
+        }
+    }) {
+        let _ = app.emit("capture-error", serde_json::json!({"message":format!("Settings saved, but Capture Pad could not update: {error}")}));
     }
     let _ = app.emit("preferences-changed", &preferences);
     Ok(preferences)

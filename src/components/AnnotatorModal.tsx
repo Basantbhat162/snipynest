@@ -26,7 +26,8 @@ import {
 import type { Clip } from "../types/clip";
 import { AnnotationDocument, drawAnnotation } from "../annotation/document";
 import type { AnnotationAction, AnnotationTool } from "../annotation/document";
-import { adjustCrop } from "../annotation/crop";
+import { adjustCrop, initialCrop, cropChangesImage, cropEdges } from "../annotation/crop";
+import type { CropEdge } from "../annotation/crop";
 import { boundedRectangle, imagePoint } from "../annotation/geometry";
 import type { Rectangle } from "../annotation/geometry";
 import "./Annotator.css";
@@ -56,6 +57,7 @@ const palette = [
   { color: "#3b82f6", label: "Blue" },
   { color: "#ffffff", label: "White" },
 ];
+const edgeLabels: Record<Exclude<CropEdge, "move">, string> = {n: "top edge", e: "right edge", s: "bottom edge", w: "left edge", nw: "top left corner", ne: "top right corner", sw: "bottom left corner", se: "bottom right corner"};
 const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
@@ -90,12 +92,14 @@ export function AnnotatorModal({
     scrollTop: number;
   } | null>(null);
   const frameRef = useRef<number | null>(null);
-  const [tool, setTool] = useState<AnnotationTool>("pen");
+  const [tool, setTool] = useState<AnnotationTool>("crop");
   const [color, setColor] = useState("#ef4444");
   const [width, setWidth] = useState(4);
   const [text, setText] = useState("");
-  const cropDrag = useRef<{id:number;x:number;y:number;rect:Rectangle;edge:string}|null>(null);
+  const cropDrag = useRef<{id:number;x:number;y:number;rect:Rectangle;edge:CropEdge | "pan";scrollLeft:number;scrollTop:number}|null>(null);
   const [aspect, setAspect] = useState(0);
+  const [cropMode, setCropMode] = useState<"adjust" | "draw">("adjust");
+  const cropRef = useRef<HTMLDivElement>(null);
   const [crop, setCrop] = useState<Rectangle | null>(null);
   // null means Fit; otherwise zoom is absolute image scale and survives host resizing.
   const [zoom, setZoom] = useState<number | null>(null);
@@ -109,6 +113,7 @@ export function AnnotatorModal({
   const busyRef = useRef(false);
   const [drawing, setDrawing] = useState(false);
   const image = documentRef.current?.canvas;
+  const cropChanged = cropChangesImage(crop, image?.width ?? 0, image?.height ?? 0);
   const fit = image
     ? Math.min(
         1,
@@ -129,7 +134,13 @@ export function AnnotatorModal({
     documentRef.current?.dispose();
     documentRef.current = null;
     gestureRef.current = null;
+    cropDrag.current = null;
+    closingRef.current = false;
+    setTool("crop");
+    setAspect(0);
+    setCropMode("adjust");
     setLoading(true);
+    setRevision(0);
     setError("");
     setStatus("");
     setCrop(null);
@@ -142,7 +153,7 @@ export function AnnotatorModal({
           const restored = await AnnotationDocument.restore(draft.document);
           if (!active) { restored.dispose(); return; }
           documentRef.current = restored; setCrop(draft.crop); setTool(draft.tool as AnnotationTool); setColor(draft.color); setWidth(draft.width); setText(draft.text);
-          setStatus("Recovered your unfinished edit."); setRevision(v=>v+1); return;
+          setStatus("Recovered your unfinished edit."); setRevision(2); return;
         }
         const source = await invoke<string | null>("get_clip_full_image", {
           id: clip.id,
@@ -168,6 +179,7 @@ export function AnnotatorModal({
           return;
         }
         documentRef.current = new AnnotationDocument(loadedImage);
+        setCrop(initialCrop(loadedImage.width, loadedImage.height));
         loadedImage.src = "";
         setRevision((value) => value + 1);
       } catch (loadError) {
@@ -268,9 +280,11 @@ export function AnnotatorModal({
       crop.height < 1 ||
       !documentRef.current ||
       busyRef.current ||
-      gestureRef.current
+      gestureRef.current ||
+      cropDrag.current
     )
       return;
+    if (!cropChanged) { setCrop(null); return; }
     documentRef.current.commit({
       tool: "crop",
       crop,
@@ -291,9 +305,47 @@ export function AnnotatorModal({
     setDrawing(false);
     requestPaint();
   };
+  const cancelCropGesture = (event?: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = cropDrag.current;
+    if (!gesture || (event && gesture.id !== event.pointerId)) return;
+    cropDrag.current = null;
+    setCrop(gesture.rect);
+    setDrawing(false);
+    if (cropRef.current?.hasPointerCapture(gesture.id)) cropRef.current.releasePointerCapture(gesture.id);
+  };
+  const startCropGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!crop || !image || busyRef.current || gestureRef.current || cropDrag.current || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.target as HTMLElement;
+    const edge = spaceHeld.current ? "pan" : (target.dataset.edge as CropEdge | undefined) ?? "move";
+    target.closest<HTMLElement>("button, [tabindex]")?.focus();
+    setDrawing(true);
+    cropDrag.current = {id: event.pointerId, x: event.clientX, y: event.clientY, rect: crop, edge, scrollLeft: stageRef.current?.scrollLeft ?? 0, scrollTop: stageRef.current?.scrollTop ?? 0};
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const updateCropGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = cropDrag.current;
+    if (!gesture || gesture.id !== event.pointerId || !image) return;
+    if (gesture.edge === "pan") {
+      if (stageRef.current) {
+        stageRef.current.scrollLeft = gesture.scrollLeft - (event.clientX - gesture.x);
+        stageRef.current.scrollTop = gesture.scrollTop - (event.clientY - gesture.y);
+      }
+      return;
+    }
+    setCrop(adjustCrop(gesture.rect, (event.clientX - gesture.x) / scale, (event.clientY - gesture.y) / scale, gesture.edge, image.width, image.height, aspect));
+  };
+  const finishCropGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (cropDrag.current?.id !== event.pointerId) return;
+    updateCropGesture(event);
+    cropDrag.current = null;
+    setDrawing(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
   const close = () => {
     if (busyRef.current || cropDrag.current) return;
-    if (revision > 1 || crop || text) setClosePrompt(true);
+    if (revision > 1 || cropChanged || text) setClosePrompt(true);
     else void finishClose().catch(e => setError(messageOf(e)));
   };
   const keepDraft = async () => {
@@ -305,7 +357,7 @@ export function AnnotatorModal({
   };
   useEffect(() => { const subscription = listen("editor-close-request", close); return () => { void subscription.then(f=>f()); }; });
   useEffect(() => {
-    if (loading || (revision <= 1 && !crop && !text) || !clip || !documentRef.current) return;
+    if (loading || (revision <= 1 && !cropChanged && !text) || !clip || !documentRef.current) return;
     const timer = setTimeout(() => { if (!closingRef.current && !gestureRef.current && !cropDrag.current && !busyRef.current && documentRef.current) void saveDraft({clip, savedAt:Date.now(),document:documentRef.current.snapshot(),crop,tool,color,width,text}).catch(e=>setError("Draft recovery unavailable: "+messageOf(e))); }, 900);
     return () => clearTimeout(timer);
   }, [revision, crop, tool, color, width, text, loading]);
@@ -322,6 +374,10 @@ export function AnnotatorModal({
         event.stopImmediatePropagation();
         if (busyRef.current) return;
         if (closePrompt) { setClosePrompt(false); return; }
+        if (cropDrag.current) {
+          cancelCropGesture();
+          return;
+        }
         if (gestureRef.current) {
           cancelGesture();
           setCrop(null);
@@ -345,8 +401,16 @@ export function AnnotatorModal({
       if (!editing && event.code === "Space") { spaceHeld.current = true; event.preventDefault(); }
       if (event.key === "F11") { event.preventDefault(); void switchMode(mode === "fullscreen" ? "window" : "fullscreen"); }
       if (!editing && event.ctrlKey && event.key === "s") { event.preventDefault(); void exportImage("save"); }
-      if (!editing && event.ctrlKey && ["0","1"].includes(event.key)) { event.preventDefault(); setZoom(event.key === "0" ? null : 1); }
-      if (!editing && crop && event.key.startsWith("Arrow")) { event.preventDefault(); const step=event.shiftKey?10:1; const dx=event.key==="ArrowLeft"?-step:event.key==="ArrowRight"?step:0; const dy=event.key==="ArrowUp"?-step:event.key==="ArrowDown"?step:0; setCrop({...crop,x:Math.max(0,Math.min(image!.width-crop.width,crop.x+dx)),y:Math.max(0,Math.min(image!.height-crop.height,crop.y+dy))}); }
+      if (!editing && event.ctrlKey && ["0","1"].includes(event.key) && !busyRef.current && !gestureRef.current && !cropDrag.current && !closePrompt) { event.preventDefault(); setZoom(event.key === "0" ? null : 1); }
+      if (!editing && crop && image && event.key.startsWith("Arrow")) {
+        event.preventDefault();
+        if (busyRef.current || gestureRef.current || cropDrag.current || closePrompt) return;
+        const step = event.shiftKey ? 10 : 1;
+        const dx = event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0;
+        const dy = event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0;
+        const edge = event.target instanceof HTMLElement ? event.target.dataset.edge as CropEdge | undefined : undefined;
+        setCrop(adjustCrop(crop, dx, dy, edge ?? "move", image.width, image.height, aspect));
+      }
       const activatingButton =
         event.target instanceof HTMLElement && !!event.target.closest("button");
       if (
@@ -362,7 +426,7 @@ export function AnnotatorModal({
       if (event.key === "Tab") {
         const focusable = Array.from(
           (closePrompt ? promptRef.current : modalRef.current)?.querySelectorAll<HTMLElement>(
-            "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
+            "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex='0']",
           ) ?? [],
         );
         const first = focusable[0],
@@ -385,8 +449,9 @@ export function AnnotatorModal({
       }
     };
     const releaseSpace=()=>{spaceHeld.current=false;};
-    window.addEventListener("keydown", keydown, true); window.addEventListener("keyup",releaseSpace); window.addEventListener("blur",releaseSpace);
-    return () => { window.removeEventListener("keydown", keydown, true); window.removeEventListener("keyup",releaseSpace); window.removeEventListener("blur",releaseSpace); };
+    const blur = () => { releaseSpace(); cancelCropGesture(); if (gestureRef.current) { if (gestureRef.current.action.tool === "crop") setCrop(null); cancelGesture(); } };
+    window.addEventListener("keydown", keydown, true); window.addEventListener("keyup",releaseSpace); window.addEventListener("blur",blur);
+    return () => { window.removeEventListener("keydown", keydown, true); window.removeEventListener("keyup",releaseSpace); window.removeEventListener("blur",blur); };
   });
 
   const pointFor = (event: ReactPointerEvent<HTMLCanvasElement>) => {
@@ -423,7 +488,7 @@ export function AnnotatorModal({
       setRevision((value) => value + 1);
       return;
     }
-    if (tool === "crop") setCrop(null);
+    if (action.tool === "crop") setCrop(null);
     const stage = stageRef.current!;
     gestureRef.current = {
       id: event.pointerId,
@@ -488,7 +553,7 @@ export function AnnotatorModal({
   };
   const exportImage = async (action: "copy" | "save") => {
     if (!documentRef.current || busyRef.current || gestureRef.current || cropDrag.current || closePrompt) return;
-    if (crop) {
+    if (cropChanged) {
       setStatus("Apply or cancel the crop before exporting.");
       return;
     }
@@ -524,7 +589,7 @@ export function AnnotatorModal({
   const ready = !loading && !!image;
   const toolHint =
     tool === "crop"
-      ? "Drag to select a crop. Enter applies; Escape cancels."
+      ? crop ? "Drag any edge or corner to resize. Arrow keys move; focus a handle to resize. Enter applies." : "Draw an area on the image, or choose Adjust edges to start from the full image."
       : tool === "text"
         ? "Enter text, then click the image to place it."
         : tool === "step"
@@ -553,7 +618,7 @@ export function AnnotatorModal({
           </span>
         </div>
         <div className="annotator-header-actions">
-          <button aria-label={mode === "inline" ? "Open editor in larger window" : "Return to sidebar"} title={mode === "inline" ? "Open in window" : "Return to sidebar"} onClick={() => void switchMode(mode === "inline" ? "window" : "inline")} disabled={!!busy || drawing}>{mode === "inline" ? <Maximize2 size={17}/> : <Minimize2 size={17}/>}</button>
+          <button aria-label={mode === "inline" ? "Open editor in maximized window" : "Return to sidebar"} title={mode === "inline" ? "Open maximized window" : "Return to sidebar"} onClick={() => void switchMode(mode === "inline" ? "window" : "inline")} disabled={!!busy || drawing}>{mode === "inline" ? <Maximize2 size={17}/> : <Minimize2 size={17}/>}</button>
           <button aria-label="Toggle fullscreen editor" title="Fullscreen (F11)" onClick={()=>void switchMode(mode==="fullscreen"?"window":"fullscreen")} disabled={!!busy || drawing}><Expand size={17}/></button>
           <button aria-label="Redo last edit" title="Redo (Ctrl+Shift+Z)" disabled={!documentRef.current?.canRedo || !!busy || drawing} onClick={()=>{documentRef.current?.redo();setRevision(v=>v+1);}}><Redo2 size={17}/></button>
           <button
@@ -582,7 +647,8 @@ export function AnnotatorModal({
             disabled={!ready || !!busy || drawing}
             onClick={() => {
               setTool(id);
-              setCrop(null);
+              setCrop(id === "crop" && image ? initialCrop(image.width, image.height, aspect) : null);
+              if (id === "crop") setCropMode("adjust");
               setStatus("");
             }}
           >
@@ -592,7 +658,7 @@ export function AnnotatorModal({
         ))}
       </div>
       <div className="annotator-options">
-        <div className="annotator-palette" aria-label="Annotation color">
+        {tool !== "crop" && <><div className="annotator-palette" aria-label="Annotation color">
           {palette.map((item) => (
             <button
               key={item.color}
@@ -619,6 +685,11 @@ export function AnnotatorModal({
             <option value={16}>Bold</option>
           </select>
         </label>
+        </>}
+        {tool === "crop" && <div className="annotator-crop-modes" aria-label="Crop method">
+          <button aria-pressed={cropMode === "adjust"} disabled={!ready || !!busy || drawing} onClick={() => { setCropMode("adjust"); setCrop(initialCrop(image!.width, image!.height, aspect)); }}>Adjust edges</button>
+          <button aria-pressed={cropMode === "draw"} disabled={!ready || !!busy || drawing} onClick={() => { setCropMode("draw"); setCrop(null); }}>Draw area</button>
+        </div>}
         <div className="annotator-zoom">
           <button
             aria-label="Zoom out"
@@ -705,19 +776,31 @@ export function AnnotatorModal({
           {crop && image && (
             <div
               className="annotator-crop"
+              ref={cropRef}
+              tabIndex={0}
+              role="group"
+              aria-label="Crop selection. Arrow keys move the selection; focus an edge to resize."
               style={{
                 left: crop.x * scale,
                 top: crop.y * scale,
                 width: crop.width * scale,
                 height: crop.height * scale,
               }}
-              onPointerDown={event=>{if(busyRef.current || event.button!==0)return; event.preventDefault();event.stopPropagation(); const edge=(event.target as HTMLElement).dataset.edge || "move"; setDrawing(true);cropDrag.current={id:event.pointerId,x:event.clientX,y:event.clientY,rect:crop,edge};event.currentTarget.setPointerCapture(event.pointerId);}}
-              onPointerMove={event=>{const g=cropDrag.current;if(!g || g.id!==event.pointerId)return;setCrop(adjustCrop(g.rect,(event.clientX-g.x)/scale,(event.clientY-g.y)/scale,g.edge,image.width,image.height,aspect));}}
-              onPointerUp={event=>{setDrawing(false);cropDrag.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);}}
-              onPointerCancel={()=>{setDrawing(false);cropDrag.current=null;}}
-              onLostPointerCapture={()=>{setDrawing(false);cropDrag.current=null;}}
+              onPointerDown={startCropGesture}
+              onPointerMove={updateCropGesture}
+              onPointerUp={finishCropGesture}
+              onPointerCancel={cancelCropGesture}
+              onLostPointerCapture={cancelCropGesture}
             >
-              {["nw","ne","sw","se"].map(edge=><i key={edge} data-edge={edge} className={"crop-handle "+edge}/>)}
+              {cropEdges.map(edge => <button
+                type="button"
+                key={edge}
+                data-edge={edge}
+                aria-label={`Resize crop ${edgeLabels[edge]}`}
+                title={`Resize ${edgeLabels[edge]} · arrow keys, Shift for 10 pixels`}
+                disabled={!!busy}
+                className={"crop-handle " + edge}
+              />)}
               <span>
                 {crop.width} × {crop.height}
               </span>
@@ -727,17 +810,17 @@ export function AnnotatorModal({
       </div>
       {tool === "crop" && (
         <div className="annotator-crop-actions">
-          <label>Ratio lock <select value={aspect} onChange={e=>setAspect(Number(e.target.value))}><option value={0}>Free</option><option value={1}>1:1</option><option value={16/9}>16:9</option><option value={4/3}>4:3</option></select></label>
+          <label>Ratio <select value={aspect} disabled={!!busy || drawing || !ready} onChange={e=>{ const next = Number(e.target.value); setAspect(next); if (crop) { const fitted = initialCrop(crop.width, crop.height, next); setCrop({...fitted, x: crop.x + fitted.x, y: crop.y + fitted.y}); } }}><option value={0}>Free</option><option value={1}>1:1</option><option value={16/9}>16:9</option><option value={4/3}>4:3</option></select></label>
           <span>
             {crop ? `${crop.width} × ${crop.height} px` : "Select an area"}
           </span>
-          <button onClick={() => setCrop(null)} disabled={drawing || !crop}>
+          <button onClick={() => setCrop(null)} disabled={!!busy || drawing || !crop}>
             Cancel crop
           </button>
           <button
             className="is-primary"
             onClick={applyCrop}
-            disabled={drawing || !crop || crop.width < 1 || crop.height < 1}
+            disabled={!!busy || drawing || !crop || crop.width < 1 || crop.height < 1}
           >
             <Check size={16} />
             Apply crop
@@ -764,7 +847,7 @@ export function AnnotatorModal({
         </button>
         <button
           onClick={() => void exportImage("copy")}
-          disabled={!ready || !!busy || drawing || !!crop}
+          disabled={!ready || !!busy || drawing || cropChanged}
         >
           <Copy size={16} />
           {busy === "copy" ? "Copying…" : "Copy image"}
@@ -772,7 +855,7 @@ export function AnnotatorModal({
         <button
           className="is-primary"
           onClick={() => void exportImage("save")}
-          disabled={!ready || !!busy || drawing || !!crop}
+          disabled={!ready || !!busy || drawing || cropChanged}
         >
           <Save size={16} />
           {busy === "save" ? "Saving…" : "Save image"}
