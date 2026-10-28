@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1 — October 16, 2026
+
+- Added persistent Light and Dark themes to desktop history, settings, Capture Pad, editor and browser Companion. Theme changes apply immediately; desktop and extension choices are separate.
+- Compacted history filters to one row with Pinned and Trash icon controls and accessible names.
+
+
 ## 1.5.0 — October 16, 2026
 
 - Rebuilt desktop and Companion presentation as a light capture workbench with slate text and teal controls.

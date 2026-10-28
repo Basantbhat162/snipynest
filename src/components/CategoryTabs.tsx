@@ -33,12 +33,14 @@ export function CategoryTabs({
       {group.map(({ id, label, Icon }) => (
         <button
           key={id}
-          className={activeCategory === id ? "is-active" : ""}
+          className={(activeCategory === id ? "is-active " : "") + (id === "pinned" || id === "trash" ? "utility-category" : "")}
+          aria-label={id === "trash" ? `Trash (${trashCount})` : label}
+          title={id === "trash" ? `Trash (${trashCount})` : label}
           aria-current={activeCategory === id ? "page" : undefined}
           onClick={() => onSelectCategory(id)}
         >
-          <Icon size={15} />
-          <span>{label}</span>
+          <Icon size={15} aria-hidden="true" />
+          <span className="category-label">{label}</span>
           {id === "trash" && trashCount > 0 && (
             <span className="count">{trashCount}</span>
           )}
