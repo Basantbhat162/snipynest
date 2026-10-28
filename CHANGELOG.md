@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.6.0 — unreleased
+
+- Added Capture Pad Quick crop: Ctrl+C copies a pending selection and Ctrl+S saves it directly, preserving the original and regular-editor drafts.
+- Split browser shortcuts into visible PNG (Alt+Shift+S), full scrolling PNG (Alt+Shift+L) and full scrolling PDF plus clipboard PNG (Alt+Shift+P).
+- Added local paginated PDF output, popup PDF download, bounded clipboard delivery to desktop, PDF storage and native file dragging from Capture Pad/history.
+- Kept the existing Ctrl+Alt+S monitor snapshot shortcut and separate Ctrl+Shift+S Windows region snipping.
+- Added default-on taskbar exclusion for monitor snapshots, including revealed auto-hide taskbars.
+- Added opt-in spare-key assignments, recording, conflict recovery, immediate release and optional startup resume for standard Windows keyboards.
+- Added an optional per-user browser control helper for spare-key visible PNG, full PNG and full PDF captures. Permissions are requested separately and can be removed from Companion Settings.
+- Rebuilt Companion around three direct capture actions, folded advanced options, actual shortcut badges and a separate settings page. Added a stable public extension ID for local host registration.
+
 ## 1.5.1 — October 16, 2026
 
 - Added persistent Light and Dark themes to desktop history, settings, Capture Pad, editor and browser Companion. Theme changes apply immediately; desktop and extension choices are separate.

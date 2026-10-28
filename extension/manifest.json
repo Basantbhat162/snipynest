@@ -1,9 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "SnipyNest Companion \u2014 HD Full-Page Web Snip",
-  "version": "1.5.1",
+  "name": "SnipyNest Companion — HD Full-Page Web Snip",
+  "version": "1.6.0",
   "minimum_chrome_version": "116",
-  "description": "Capture a full webpage as a PNG on the system clipboard. SnipyNest desktop can save it to clipboard history.",
+  "description": "Copy a visible snapshot or scrolling PNG, or capture a full page as PDF. Optional desktop keys for faster capture.",
+  "optional_permissions": ["nativeMessaging"],
+  "optional_host_permissions": ["<all_urls>"],
+  "options_ui": {"page": "options.html", "open_in_tab": true},
   "permissions": [
     "activeTab",
     "scripting",
@@ -26,7 +29,22 @@
         "default": "Alt+Shift+S",
         "windows": "Alt+Shift+S"
       },
-      "description": "Capture full-page webpage in HD"
+      "description": "Quick snapshot of the visible area, copy PNG"
+    },
+    "capture-long-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+L",
+        "windows": "Alt+Shift+L"
+      },
+      "description": "Capture full scrolling page and copy PNG"
+    },
+    "capture-full-page-pdf": {
+      "suggested_key": {
+        "default": "Alt+Shift+P",
+        "windows": "Alt+Shift+P"
+      },
+      "description": "Capture full scrolling page as PDF and copy PNG"
     }
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1Rxb0s+RSUVTzQPbIu3iIMFOMW6cqjyciSjnnh2O3m2gH/pZ85RzxYGakeDEKzLQcOFBNidxGNiU+isVdlgIAaxP+HmoEUKR8ysGdwIdRr6oMD2vhT/hhcCiFTG1jzgJRANiYaI55XUENMAC9RkoXbhSDST9b4GkEJp1Oh2efNjQ0abBaC6CwDrn4IJ1z6WUtqeLz2Gxwft0Bd96jHayvnRLxb+gYMlPcwInbBUsz3KXpByYV/17kZyFsg97hShgzIPtp6H8vNRoL8MGCxPbYC5JYRwWjT2ftxmcspNAq5u91z+yoVCzatAQ2SchdWfiLfQaCIlzVgBvvkrrybqVNwIDAQAB"
 }

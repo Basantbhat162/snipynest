@@ -126,7 +126,10 @@ impl DragDropStager {
             if clip.is_deleted {
                 return Err("Restore the clip before dragging it".into());
             }
-            if clip.clip_type == crate::storage::ClipType::Image {
+            if matches!(
+                clip.clip_type,
+                crate::storage::ClipType::Image | crate::storage::ClipType::File
+            ) {
                 images.push(id.clone());
             } else {
                 texts.push(clip.text_content.ok_or("Clip text is missing")?);
@@ -183,13 +186,23 @@ impl DragDropStager {
                 ));
             }
             match clip.clip_type {
-                crate::storage::ClipType::Image => {
-                    let blob_path = db.get_blob_store().get_blob_path(&clip.hash);
+                crate::storage::ClipType::Image | crate::storage::ClipType::File => {
+                    let extension = if clip.clip_type == crate::storage::ClipType::File {
+                        "pdf"
+                    } else {
+                        "png"
+                    };
+                    let blob_path = if clip.clip_type == crate::storage::ClipType::File {
+                        db.get_blob_store().get_pdf_path(&clip.hash)
+                    } else {
+                        db.get_blob_store().get_blob_path(&clip.hash)
+                    };
                     if blob_path.exists() {
                         let target_filename = format!(
-                            "image_{}_{}.png",
+                            "capture_{}_{}.{}",
                             idx + 1,
-                            clip.hash.chars().take(8).collect::<String>()
+                            clip.hash.chars().take(8).collect::<String>(),
+                            extension
                         );
                         let target_path = session_dir.join(target_filename);
                         // External applications may modify a dropped file in place. Never share blob storage.

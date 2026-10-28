@@ -1,4 +1,14 @@
 import { imageGeometry, frameRegion } from './stitch-plan.mjs';
+import { screenshotPdf, PDF_CLIPBOARD_TYPE } from './screenshot-pdf.mjs';
+
+const clipboardData = result => ({'image/png':result.blob, ...(result.pdf ? {[PDF_CLIPBOARD_TYPE]:new Blob([result.pdf], {type:PDF_CLIPBOARD_TYPE.slice(4)})} : {})});
+const revokeResult = result => { URL.revokeObjectURL(result.url); if (result.pdfUrl) URL.revokeObjectURL(result.pdfUrl); };
+async function base64Blob(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+  return btoa(binary);
+}
 
 let session;
 let processing = false;
@@ -10,22 +20,17 @@ async function process(action, data) {
   try {
     if (action === 'result-preview') {
       if (!completed) throw new Error('The image expired. Capture it again.');
-      return { url: completed.url, width: completed.width, height: completed.height, resultId:completed.id,partial:completed.partial };
+      return { url: completed.url, pdfUrl:completed.pdfUrl, width: completed.width, height: completed.height, resultId:completed.id,partial:completed.partial };
     }
     if (action === 'clipboard-payload') {
       if (!completed || completed.id !== data?.resultId || completed.partial) throw new Error('No complete capture available.');
       // Bound JSON/base64 transfer independently of the retained result budget.
-      if (completed.blob.size > 16 * 1024 * 1024) throw new Error('Use Copy in the popup for this large image.');
-      const bytes = new Uint8Array(await completed.blob.arrayBuffer());
-      let binary = '';
-      for (let offset = 0; offset < bytes.length; offset += 8192) {
-        binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
-      }
-      return {base64:btoa(binary)};
+      if (completed.blob.size + (completed.pdf?.size || 0) > 16 * 1024 * 1024) throw new Error('Use Copy in the popup for this large capture.');
+      return {base64:await base64Blob(completed.blob), ...(completed.pdf ? {pdfBase64:await base64Blob(completed.pdf)} : {})};
     }
     if (action === 'retry-copy') {
       if (!completed) throw new Error('The image expired. Capture it again.');
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': completed.blob })]);
+      await navigator.clipboard.write([new ClipboardItem(clipboardData(completed))]);
       return { copied: true };
     }
     if (action === 'start') {
@@ -77,16 +82,18 @@ async function process(action, data) {
       // Some Chromium browsers require focus despite clipboardWrite permission.
       // Preserve the PNG so the popup or focused result tab can finish delivery.
       if (blob.size > 64 * 1024 * 1024) throw new Error('The completed PNG exceeds 64 MB. Capture a smaller area.');
+      const pdf = metrics.outputFormat === 'pdf' && !partial ? await screenshotPdf(output) : null;
+      if (blob.size + (pdf?.size || 0) > 64 * 1024 * 1024) throw new Error('The PNG and PDF together exceed 64 MB. Capture a shorter page.');
       const url = URL.createObjectURL(blob);
       clearTimeout(expiry);
-      if (completed) URL.revokeObjectURL(completed.url);
-      completed = { id:crypto.randomUUID(), partial, blob, url, width: output.width, height: output.height };
-      expiry = setTimeout(() => { URL.revokeObjectURL(url); completed = null; }, 5 * 60_000);
+      if (completed) revokeResult(completed);
+      completed = { id:crypto.randomUUID(), partial, blob, url, pdf, pdfUrl:pdf ? URL.createObjectURL(pdf) : undefined, width: output.width, height: output.height };
+      expiry = setTimeout(() => { if (completed) revokeResult(completed); completed = null; }, 5 * 60_000);
       expiry.unref?.();
       canvas.width = canvas.height = 0; output.width=output.height=0; session = null;
       let copied = false, warning;
-      try { if (!partial) { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); copied = true; } }
-      catch { warning = 'Image ready, but clipboard access failed. Open the extension to retry Copy or save the PNG.'; }
+      try { if (!partial) { await navigator.clipboard.write([new ClipboardItem(clipboardData(completed))]); copied = true; } }
+      catch { warning = 'Capture ready, but clipboard access failed. Open the extension to retry Copy or save the file.'; }
       return { resultId:completed.id, partial, width: completed.width, height: completed.height, byteSize: blob.size, copied, warning, resultAvailable: true };
     }
     throw new Error('Unknown image processing request.');

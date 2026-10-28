@@ -11,10 +11,10 @@ const compiled = ts.transpileModule(readFileSync(new URL("../src/components/Anno
   compilerOptions: {module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022},
 }).outputText;
 
-function editorHarness() {
+function editorHarness(quickCrop = false) {
   const slots = [];
   let cursor = 0, tree, loads = [], listeners = [];
-  let copied = 0, closed = 0;
+  let copied = 0, closed = 0, saved = 0, exportedCrop;
   const nativeCalls = [];
   const hooks = {
     useState(initial) {
@@ -40,7 +40,7 @@ function editorHarness() {
     canvas = {width: 100, height: 80};
     canUndo = false;
     canRedo = false;
-    exportPng() { return "synthetic-png"; }
+    exportPng(crop) { exportedCrop = crop; return "synthetic-png"; }
     dispose() {}
   }
   const modules = {
@@ -63,7 +63,7 @@ function editorHarness() {
   const render = () => {
     cursor = 0;
     listeners = [];
-    tree = exports.AnnotatorModal({clip: {id: "fixture"}, onClose: () => {closed++;}, onSave: async () => {}, onCopyResult: async () => {copied++;}});
+    tree = exports.AnnotatorModal({quickCrop, clip: {id: "fixture"}, onClose: () => {closed++;}, onSave: async () => {saved++;}, onCopyResult: async () => {copied++;}});
     return tree;
   };
   const nodes = () => {
@@ -82,17 +82,17 @@ function editorHarness() {
   const crop = () => find(node => node.props?.className === "annotator-crop");
   render();
   return {render, nodes, find, button, crop, nativeCalls,
-    key(key, edge, shiftKey = false) {
+    key(key, edge, shiftKey = false, ctrlKey = false) {
       const previousWindow = globalThis.window, previousElement = globalThis.HTMLElement;
       const handlers = new Map();
       class Element {dataset = edge ? {edge} : {}; tagName = edge ? "BUTTON" : "DIV"; closest() {return edge ? this : null;} }
       globalThis.HTMLElement = Element;
       globalThis.window = {addEventListener: (name, handler) => handlers.set(name, handler), removeEventListener() {}};
       const cleanups = listeners.map(effect => effect());
-      try { handlers.get("keydown")({key, code:key, target:new Element(), shiftKey, ctrlKey:false, metaKey:false, preventDefault(){},stopImmediatePropagation(){}}); }
+      try { handlers.get("keydown")({key, code:key, target:new Element(), shiftKey, ctrlKey, metaKey:false, preventDefault(){},stopImmediatePropagation(){}}); }
       finally {cleanups.forEach(cleanup=>cleanup?.()); globalThis.window=previousWindow;globalThis.HTMLElement=previousElement;}
     },
-    get copied() {return copied;}, get closed() {return closed;},
+    get copied() {return copied;}, get closed() {return closed;}, get saved() {return saved;}, get exportedCrop() {return exportedCrop;},
     async load() {
       const OriginalImage = globalThis.Image;
       globalThis.Image = class {width = 100; height = 80; set src(value) {if (value) queueMicrotask(() => this.onload());}};
@@ -212,4 +212,36 @@ test("the initial guide does not disable Copy or Save until the crop changes", a
   editor.crop().props.onPointerDown(down);
   editor.crop().props.onPointerUp({...down, clientX: 0.2}); editor.render();
   assert.equal(action("Copy image").props.disabled, true);
+});
+
+test("Quick crop copies the pending selection with Ctrl+C and saves with Ctrl+S", async () => {
+  const waitFor=async(predicate)=>{
+    const deadline=Date.now()+2000;
+    while(!predicate()&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,1));
+    assert.ok(predicate(),"Export did not finish within the test deadline");
+  };
+  const previous = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+  try {
+    const editor = editorHarness(true); await editor.load();
+    editor.key("ArrowRight", "w", true); editor.render();
+    const action = label => editor.find(node => node.type === "button" && node.props.children?.[1] === label);
+    assert.equal(action("Copy image").props.disabled, false);
+    editor.key("c", undefined, false, true);
+    await waitFor(()=>editor.copied===1); editor.render();
+    assert.equal(editor.copied, 1);
+    assert.deepEqual(editor.exportedCrop, {x:10,y:0,width:90,height:80});
+    assert.equal(editor.saved, 0); assert.equal(editor.closed, 0);
+    editor.key("s", undefined, false, true);
+    await waitFor(()=>editor.closed===1); editor.render();
+    assert.equal(editor.saved, 1); assert.equal(editor.closed, 1);
+  } finally { globalThis.requestAnimationFrame = previous; }
+});
+
+test("Quick crop closes with Escape without a discard prompt", async () => {
+  const editor = editorHarness(true); await editor.load();
+  editor.key("ArrowRight", "w"); editor.render();
+  editor.key("Escape"); await new Promise(resolve => setImmediate(resolve)); editor.render();
+  assert.equal(editor.closed, 1);
+  assert.equal(editor.find(node=>node.props?.role === "alertdialog"), undefined);
 });

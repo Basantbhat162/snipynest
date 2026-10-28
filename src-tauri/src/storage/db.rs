@@ -248,6 +248,53 @@ impl Database {
         })
     }
 
+    /// Store PDFs from the explicit Companion clipboard format, never filesystem paths.
+    pub fn insert_pdf(
+        &self,
+        bytes: &[u8],
+        preview: Option<&[u8]>,
+        source_app: Option<&str>,
+        source_title: Option<&str>,
+    ) -> Result<Clip> {
+        use base64::Engine;
+        let thumbnail = preview.and_then(|png| {
+            let image = super::blob::decode_image(png).ok()?.thumbnail(384, 384);
+            let mut output = std::io::Cursor::new(Vec::new());
+            image.write_to(&mut output, image::ImageFormat::Png).ok()?;
+            Some(format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(output.into_inner())
+            ))
+        });
+        let hash = self
+            .blob_store
+            .save_pdf(bytes)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        let conn = self.conn.lock();
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT id FROM clips WHERE hash=?1 AND clip_type='file' AND is_deleted=0 LIMIT 1",
+                params![hash],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let id = existing
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let now = Utc::now().to_rfc3339();
+        if existing.is_some() {
+            conn.execute(
+                "UPDATE clips SET created_at=?1, source_app=?2, source_title=?3 WHERE id=?4",
+                params![now, source_app, source_title, id],
+            )?;
+        } else {
+            conn.execute("INSERT INTO clips (id,hash,clip_type,text_content,byte_size,source_app,source_title,created_at,thumbnail) VALUES (?1,?2,'file','Webpage.pdf',?3,?4,?5,?6,?7)", params![id, hash, bytes.len(), source_app, source_title, now, thumbnail])?;
+        }
+        drop(conn);
+        self.get_clip(&id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
     /// Query clips with search and filters
     pub fn query_clips(&self, filter: &ClipFilter) -> Result<Vec<Clip>> {
         let conn = self.conn.lock();
@@ -257,7 +304,9 @@ impl Database {
         let offset = filter.offset.unwrap_or(0);
 
         let clip_type = filter.clip_type.as_deref().filter(|t| *t != "all");
-        if clip_type.is_some_and(|t| !matches!(t, "text" | "image" | "link" | "code" | "file")) {
+        if clip_type
+            .is_some_and(|t| !matches!(t, "text" | "image" | "link" | "code" | "file" | "capture"))
+        {
             return Err(rusqlite::Error::InvalidQuery);
         }
         let search = filter
@@ -270,12 +319,12 @@ impl Database {
                     dimensions, source_app, source_title, created_at, is_pinned,
                     is_deleted, deleted_at, thumbnail
              FROM clips WHERE is_deleted = ?1
-                AND (?2 IS NULL OR clip_type = ?2)
+                AND (?2 IS NULL OR clip_type = ?2 OR (?2 = 'capture' AND clip_type IN ('image','file')))
                 AND (?3 = 0 OR is_pinned = 1)
                 AND (?4 IS NULL OR instr(lower(COALESCE(text_content, '')), lower(?4)) > 0
                     OR instr(lower(COALESCE(source_app, '')), lower(?4)) > 0
                     OR instr(lower(COALESCE(source_title, '')), lower(?4)) > 0)
-             ORDER BY is_pinned DESC, created_at DESC, id DESC LIMIT ?5 OFFSET ?6",
+             ORDER BY CASE WHEN ?2 = 'capture' THEN 0 ELSE is_pinned END DESC, created_at DESC, id DESC LIMIT ?5 OFFSET ?6",
         );
 
         let mut stmt = conn.prepare(&query)?;
@@ -292,8 +341,12 @@ impl Database {
                 let clip_type_str: String = row.get(2)?;
                 let clip_type = ClipType::from_str(&clip_type_str);
                 let hash: String = row.get(1)?;
-                let file_path = if clip_type == ClipType::Image {
-                    let p = self.blob_store.get_blob_path(&hash);
+                let file_path = if matches!(clip_type, ClipType::Image | ClipType::File) {
+                    let p = if clip_type == ClipType::File {
+                        self.blob_store.get_pdf_path(&hash)
+                    } else {
+                        self.blob_store.get_blob_path(&hash)
+                    };
                     if p.exists() {
                         Some(p.to_string_lossy().to_string())
                     } else {
@@ -346,8 +399,12 @@ impl Database {
                 let clip_type_str: String = row.get(2)?;
                 let clip_type = ClipType::from_str(&clip_type_str);
                 let hash: String = row.get(1)?;
-                let file_path = if clip_type == ClipType::Image {
-                    let p = self.blob_store.get_blob_path(&hash);
+                let file_path = if matches!(clip_type, ClipType::Image | ClipType::File) {
+                    let p = if clip_type == ClipType::File {
+                        self.blob_store.get_pdf_path(&hash)
+                    } else {
+                        self.blob_store.get_blob_path(&hash)
+                    };
                     if p.exists() {
                         Some(p.to_string_lossy().to_string())
                     } else {
@@ -655,6 +712,48 @@ mod tests {
                 .as_deref(),
             Some(full.as_str())
         );
+        drop(db);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn pdf_capture_survives_query_drag_dedup_and_trash_without_sharing_originals() {
+        let dir = test_directory();
+        let db = Database::new(&dir.join("test.db"), &dir.join("blobs")).unwrap();
+        let bytes = b"%PDF-1.4\nsynthetic document\n%%EOF\n";
+        assert!(db.insert_pdf(b"invalid", None, None, None).is_err());
+        let pdf = db.insert_pdf(bytes, None, Some("Companion"), None).unwrap();
+        assert_eq!(pdf.clip_type, ClipType::File);
+        let original = pdf.file_path.clone().unwrap();
+        assert_eq!(std::fs::read(&original).unwrap(), bytes);
+        assert_eq!(db.insert_pdf(bytes, None, None, None).unwrap().id, pdf.id);
+        db.insert_text("pinned", ClipType::Text, None, None)
+            .map(|c| db.toggle_pin(&c.id).unwrap())
+            .unwrap();
+        let clips = db
+            .query_clips(&ClipFilter {
+                clip_type: Some("capture".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(clips.len(), 1);
+        assert_eq!(clips[0].file_path.as_deref(), Some(original.as_str()));
+        let stager = crate::drag_drop::DragDropStager::new(dir.join("stage"));
+        let (paths, text) = stager
+            .prepare_native_selection(&db, &[pdf.id.clone()])
+            .unwrap();
+        assert!(text.is_none());
+        assert_eq!(paths[0].extension().unwrap(), "pdf");
+        assert_eq!(std::fs::read(&paths[0]).unwrap(), bytes);
+        std::fs::write(&paths[0], b"external edit").unwrap();
+        assert_eq!(std::fs::read(&original).unwrap(), bytes);
+        assert!(crate::drag_drop::native::prepare_payload(&paths, None).is_ok());
+        db.move_to_trash(&pdf.id).unwrap();
+        assert!(stager
+            .prepare_native_selection(&db, &[pdf.id.clone()])
+            .is_err());
+        db.delete_permanently(&pdf.id).unwrap();
+        assert!(!std::path::Path::new(&original).exists());
         drop(db);
         std::fs::remove_dir_all(dir).unwrap();
     }

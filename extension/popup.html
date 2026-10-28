@@ -13,16 +13,25 @@
     <header class="brand-header">
       <span class="brand-mark"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3H4a1 1 0 0 0-1 1v4m13-5h4a1 1 0 0 1 1 1v4M3 16v4a1 1 0 0 0 1 1h4m8 0h4a1 1 0 0 0 1-1v-4"/><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg></span>
       <div><span class="brand-name">SnipyNest</span><p class="brand-caption">Browser companion</p></div>
-    <label class="theme-choice">Theme<select data-theme-choice aria-label="Theme"><option value="light">Light</option><option value="dark">Dark</option></select></label></header>
+    <button id="openSettings" class="settings-link secondary" type="button" aria-label="Open Companion settings">Settings</button></header>
     <p id="theme-status" role="alert"></p>
     <section class="capture-form" aria-labelledby="capture-title">
       <h1 id="capture-title">Capture this page</h1>
-      <p class="intro">A clean PNG, ready to copy or keep.</p>
+      <p class="intro">Choose a capture. It copies automatically.</p>
+      <div class="quick-captures">
+        <button id="quickVisible" class="quick-capture" type="button"><span><strong>Quick snapshot</strong><small>Visible area · PNG to clipboard</small></span><kbd id="visibleShortcut">Unassigned</kbd></button>
+        <button id="quickFull" class="quick-capture secondary" type="button"><span><strong>Scrolling image</strong><small>Full page · PNG to clipboard</small></span><kbd id="fullShortcut">Unassigned</kbd></button>
+        <button id="quickPdf" class="quick-capture secondary" type="button"><span><strong>Scrolling PDF</strong><small>Full page · PDF + PNG to clipboard</small></span><kbd id="pdfShortcut">Unassigned</kbd></button>
+      </div>
+      <details class="advanced-capture"><summary>More capture options</summary>
       <label for="captureMode">Capture area</label>
       <select id="captureMode" aria-describedby="capture-hint"><option value="full">Full page</option><option value="visible">Visible area</option><option value="feed">Loaded feed · up to five screens</option><option value="region">Choose scrolling panel</option></select>
       <p id="capture-hint" class="field-hint">For dashboards with their own scrollbar, choose a panel.</p>
+      <label for="captureFormat">Output</label>
+      <select id="captureFormat"><option value="png">PNG image</option><option value="pdf">PDF + PNG clipboard image</option></select>
       <label class="slow-option"><input id="slowCapture" type="checkbox"><span>Allow extra rendering time<small>For animations and images that load as you scroll.</small></span></label>
       <button id="captureBtn" type="button">Capture</button>
+      </details>
       <div class="feedback">
         <p id="status" role="status" aria-live="polite" aria-atomic="true">Ready to capture.</p>
         <progress id="progress" max="1" value="0" aria-label="Page capture progress" hidden></progress>
@@ -31,13 +40,14 @@
       <div id="recovery" class="recovery" hidden><p class="section-label">Try a smaller capture</p><button id="captureVisible" class="secondary" type="button">Capture visible area</button><button id="capturePanel" class="secondary" type="button">Choose scrolling panel</button></div>
     </section>
     <section id="result" class="retained-result" aria-labelledby="result-title" hidden>
-      <div class="section-heading"><h2 id="result-title">Last capture</h2><span>PNG</span></div>
+      <div class="section-heading"><h2 id="result-title">Last capture</h2><span id="resultFormat">PNG</span></div>
       <div class="preview-stage"><img id="preview" alt="Last captured webpage"></div>
       <div class="result-actions"><button id="copyResult" class="secondary" type="button">Copy image</button><a id="saveResult" class="save-action" download="SnipyNest-page.png">Save PNG</a></div>
+      <a id="savePdf" class="save-action" download="SnipyNest-page.pdf" hidden>Save PDF</a>
       <small>Available for five minutes, or until replaced.</small>
     </section>
     <footer>
-      <div class="shortcut-row"><span id="shortcut" class="shortcut">Alt + Shift + S</span><a href="chrome://extensions/shortcuts" id="shortcutsLink">Change shortcut</a></div>
+      <p id="shortcut" class="field-hint">Visible PNG: Alt+Shift+S · Full PNG: Alt+Shift+L · Full PDF: Alt+Shift+P</p><a href="chrome://extensions/shortcuts" id="shortcutsLink">Change shortcuts</a>
       <details class="capture-help"><summary>Capture help</summary><p class="delivery">Keep this tab active until capture finishes. If copying is blocked, reopen this popup to copy or save. Run SnipyNest desktop to collect copied images in history. Protected browser pages need Windows snipping.</p><button id="saveDiagnostics" class="text-button" type="button">Save capture diagnostics</button></details>
     </footer>
   </main>

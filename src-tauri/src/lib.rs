@@ -1,6 +1,8 @@
+pub mod browser_bridge;
 pub mod clipboard;
 pub mod commands;
 pub mod drag_drop;
+pub mod keyboard;
 pub mod lifecycle;
 pub mod preferences;
 pub mod screen_capture;
@@ -39,10 +41,15 @@ pub struct AppState {
     pub capture_paused: Arc<AtomicBool>,
     pub preferences: Arc<RwLock<preferences::Preferences>>,
     pub _listener: Arc<RwLock<Option<ClipboardListener>>>,
+    pub single_keys: keyboard::Service,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if browser_bridge::is_host() {
+        let _ = browser_bridge::run_host();
+        return;
+    }
     let _instance =
         match lifecycle::acquire_instance(std::env::args().any(|arg| arg == "--background")) {
             Ok(Some(guard)) => guard,
@@ -69,7 +76,7 @@ pub fn run() {
 
     let db =
         Arc::new(Database::new(&db_path, &blob_dir).expect("Failed to initialize SQLite database"));
-    let preferences = match db.load_preferences() {
+    let mut preferences = match db.load_preferences() {
         Ok(preferences) => {
             let _ = db.prune_old_trash(i64::from(preferences.trash_retention_days));
             preferences
@@ -81,6 +88,9 @@ pub fn run() {
             Default::default()
         }
     };
+    if !preferences.single_key_resume {
+        preferences.single_key_enabled = false;
+    }
     let capture_paused = Arc::new(AtomicBool::new(preferences.capture_paused));
     let stager = Arc::new(DragDropStager::new(data_dir.join("drops")));
     stager.cleanup_old_sessions();
@@ -120,9 +130,17 @@ pub fn run() {
             }
         }
         while let Ok((item, monitor)) = capture_receiver.recv() {
-            let weight = item.text.as_ref().map_or(0, |text| text.len())
+            let weight = item.pdf.as_ref().map_or(0, |pdf| pdf.len())
+                + item.text.as_ref().map_or(0, |text| text.len())
                 + item.image_png.as_ref().map_or(0, |image| image.len());
-            let inserted = if let Some(text) = item.text {
+            let inserted = if let Some(pdf) = item.pdf {
+                db_for_listener.insert_pdf(
+                    &pdf,
+                    item.image_png.as_deref(),
+                    item.source_app.as_deref(),
+                    item.source_title.as_deref(),
+                )
+            } else if let Some(text) = item.text {
                 let candidate = text.trim();
                 let clip_type = if (candidate.starts_with("http://")
                     || candidate.starts_with("https://"))
@@ -161,7 +179,7 @@ pub fn run() {
                         if let Some(text) = clip.text_content.as_mut() {
                             *text = text.chars().take(4096).collect();
                         }
-                        if clip.clip_type == ClipType::Image
+                        if matches!(clip.clip_type, ClipType::Image | ClipType::File)
                             && arrivals
                                 .lock()
                                 .should_notify(&clip.hash, clip.source_app.as_deref())
@@ -183,7 +201,8 @@ pub fn run() {
     });
     let listener = ClipboardListener::start(
         move |item, cursor| {
-            let weight = item.text.as_ref().map_or(0, |text| text.len())
+            let weight = item.pdf.as_ref().map_or(0, |pdf| pdf.len())
+                + item.text.as_ref().map_or(0, |text| text.len())
                 + item.image_png.as_ref().map_or(0, |image| image.len());
             let reserved = pending_bytes
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
@@ -238,7 +257,44 @@ pub fn run() {
 
     *listener_holder.write() = Some(listener);
 
+    let app_for_keys = app_handle_holder.clone();
+    let single_keys = keyboard::Service::start(move |action| {
+        if let Some(app) = app_for_keys.read().as_ref() {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let result = match action {
+                    keyboard::Action::Snip => commands::capture_screen(app.clone()).await,
+                    keyboard::Action::Snapshot => {
+                        screen_capture::capture_monitor(app.clone()).await
+                    }
+                    keyboard::Action::History => {
+                        let app2 = app.clone();
+                        app.run_on_main_thread(move || {
+                            if let Some(window) = app2.get_webview_window("main") {
+                                commands::toggle_window_visibility(&window);
+                            }
+                        })
+                        .map_err(|e| e.to_string())
+                    }
+                    action => browser_bridge::request(action),
+                };
+                if let Err(message) = result {
+                    let _ = app.emit("capture-error", serde_json::json!({"message":message}));
+                }
+            });
+        }
+    })
+    .expect("Keyboard service unavailable");
+    if let Err(error) = single_keys.apply(
+        preferences.single_key_enabled,
+        &preferences.single_key_bindings,
+    ) {
+        preferences.single_key_enabled = false;
+        eprintln!("Single-key mode is disarmed: {error}");
+    }
+
     let state = AppState {
+        single_keys,
         data_dir,
         editor_expanded: Arc::new(AtomicBool::new(false)),
         pad_unread: std::sync::atomic::AtomicUsize::new(0),
@@ -259,6 +315,9 @@ pub fn run() {
         .manage(state)
         .setup(move |app| {
             let app_handle = app.handle().clone();
+            if let Err(message) = browser_bridge::start() {
+                let _ = app_handle.emit("capture-error", serde_json::json!({"message":message}));
+            }
             window::pad_timer::initialize(app_handle.clone());
             if app.state::<AppState>().preferences.read().start_at_login {
                 let _ = preferences::set_start_at_login(true);
@@ -272,9 +331,23 @@ pub fn run() {
             let pad_item = MenuItem::with_id(app, "pad", "Show Capture Pad", true, None::<&str>)?;
             let reset_item =
                 MenuItem::with_id(app, "reset-pad", "Reset Pad position", true, None::<&str>)?;
+            let disarm_item = MenuItem::with_id(
+                app,
+                "disarm-keys",
+                "Disable single-key mode",
+                true,
+                None::<&str>,
+            )?;
             let menu = Menu::with_items(
                 app,
-                &[&toggle_item, &snip_item, &pad_item, &reset_item, &quit_item],
+                &[
+                    &toggle_item,
+                    &snip_item,
+                    &pad_item,
+                    &reset_item,
+                    &disarm_item,
+                    &quit_item,
+                ],
             )?;
 
             let mut tray_builder = TrayIconBuilder::new();
@@ -307,6 +380,12 @@ pub fn run() {
                     }
                     "quit" => {
                         app.exit(0);
+                    }
+                    "disarm-keys" => {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            let _ = keyboard::disarm(app);
+                        });
                     }
                     _ => {}
                 })
@@ -425,6 +504,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            browser_bridge::browser_control_status,
+            browser_bridge::install_browser_control,
+            keyboard::disarm,
             commands::prepare_clip_batch,
             commands::trash_clip_batch,
             commands::undo_clip_batch,

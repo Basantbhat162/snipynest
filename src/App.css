@@ -201,3 +201,9 @@ kbd { font: 11px "Segoe UI", sans-serif; color: var(--muted); white-space: nowra
 }
 
 [hidden] { display: none !important; }
+:root { accent-color: var(--accent); }
+.key-binding { display: grid; gap: 6px; margin: 12px 0; min-width: 0; }
+.key-binding > label { font-weight: 600; font-size: 12px; }
+.key-binding-controls { display: flex; gap: 8px; min-width: 0; }
+.key-binding-controls select { flex: 1; min-width: 0; width: 0; }
+.key-binding-controls button { flex: 0 0 76px; padding: 6px 8px; }

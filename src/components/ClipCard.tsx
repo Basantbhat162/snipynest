@@ -102,17 +102,18 @@ export function ClipCard({
           </button>
         )}
       </div>
-      {clip.clip_type === "image" ? (
+      {clip.clip_type === "image" || clip.clip_type === "file" ? (
         <div className="clip-image" {...(!isTrashView ? drag : {})}>
           {preview ? (
             <img
               src={preview}
-              alt={clip.source_title || "Clipboard image"}
+              alt={clip.source_title || (clip.clip_type === "file" ? "PDF capture preview" : "Clipboard image")}
               draggable={false}
             />
           ) : (
-            <span className="muted">Image preview unavailable</span>
+            <span className="muted">{clip.clip_type === "file" ? "PDF capture · drag to share" : "Image preview unavailable"}</span>
           )}
+          {clip.clip_type === "file" && <span className="image-dimensions">PDF</span>}
           {clip.dimensions && (
             <span className="image-dimensions">{clip.dimensions}</span>
           )}
@@ -134,7 +135,7 @@ export function ClipCard({
       )}
       <div className="clip-footer">
         <span className="clip-size">
-          {clip.clip_type === "image"
+          {clip.clip_type === "image" || clip.clip_type === "file"
             ? formatBytes(clip.byte_size)
             : clip.char_count.toLocaleString() + " characters"}
         </span>

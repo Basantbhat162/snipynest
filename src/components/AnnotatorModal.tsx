@@ -33,6 +33,7 @@ import type { Rectangle } from "../annotation/geometry";
 import "./Annotator.css";
 
 interface AnnotatorModalProps {
+  quickCrop?: boolean;
   clip: Clip | null;
   onClose: () => void;
   onSave: (dataBase64: string, originalId?: string) => Promise<void>;
@@ -62,6 +63,7 @@ const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
 export function AnnotatorModal({
+  quickCrop = false,
   clip,
   onClose,
   onSave,
@@ -148,7 +150,7 @@ export function AnnotatorModal({
     setDrawing(false);
     const load = async () => {
       try {
-        const draft = await readDraft();
+        const draft = quickCrop ? null : await readDraft();
         if (draft?.clip.id === clip.id) {
           const restored = await AnnotationDocument.restore(draft.document);
           if (!active) { restored.dispose(); return; }
@@ -345,7 +347,7 @@ export function AnnotatorModal({
   };
   const close = () => {
     if (busyRef.current || cropDrag.current) return;
-    if (revision > 1 || cropChanged || text) setClosePrompt(true);
+    if (!quickCrop && (revision > 1 || cropChanged || text)) setClosePrompt(true);
     else void finishClose().catch(e => setError(messageOf(e)));
   };
   const keepDraft = async () => {
@@ -357,7 +359,7 @@ export function AnnotatorModal({
   };
   useEffect(() => { const subscription = listen("editor-close-request", close); return () => { void subscription.then(f=>f()); }; });
   useEffect(() => {
-    if (loading || (revision <= 1 && !cropChanged && !text) || !clip || !documentRef.current) return;
+    if (quickCrop || loading || (revision <= 1 && !cropChanged && !text) || !clip || !documentRef.current) return;
     const timer = setTimeout(() => { if (!closingRef.current && !gestureRef.current && !cropDrag.current && !busyRef.current && documentRef.current) void saveDraft({clip, savedAt:Date.now(),document:documentRef.current.snapshot(),crop,tool,color,width,text}).catch(e=>setError("Draft recovery unavailable: "+messageOf(e))); }, 900);
     return () => clearTimeout(timer);
   }, [revision, crop, tool, color, width, text, loading]);
@@ -381,7 +383,8 @@ export function AnnotatorModal({
         if (gestureRef.current) {
           cancelGesture();
           setCrop(null);
-        } else if (crop) setCrop(null);
+        } else if (quickCrop) close();
+        else if (crop) setCrop(null);
         else if (mode === "fullscreen") void switchMode("window");
         else close();
       }
@@ -401,6 +404,7 @@ export function AnnotatorModal({
       if (!editing && event.code === "Space") { spaceHeld.current = true; event.preventDefault(); }
       if (event.key === "F11") { event.preventDefault(); void switchMode(mode === "fullscreen" ? "window" : "fullscreen"); }
       if (!editing && event.ctrlKey && event.key === "s") { event.preventDefault(); void exportImage("save"); }
+      if (!editing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") { event.preventDefault(); event.stopImmediatePropagation(); void exportImage("copy"); }
       if (!editing && event.ctrlKey && ["0","1"].includes(event.key) && !busyRef.current && !gestureRef.current && !cropDrag.current && !closePrompt) { event.preventDefault(); setZoom(event.key === "0" ? null : 1); }
       if (!editing && crop && image && event.key.startsWith("Arrow")) {
         event.preventDefault();
@@ -553,7 +557,7 @@ export function AnnotatorModal({
   };
   const exportImage = async (action: "copy" | "save") => {
     if (!documentRef.current || busyRef.current || gestureRef.current || cropDrag.current || closePrompt) return;
-    if (cropChanged) {
+    if (cropChanged && !quickCrop) {
       setStatus("Apply or cancel the crop before exporting.");
       return;
     }
@@ -565,14 +569,14 @@ export function AnnotatorModal({
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => setTimeout(resolve, 0)),
       );
-      const png = documentRef.current.exportPng();
+      const png = documentRef.current.exportPng(quickCrop ? crop : null);
       if (action === "copy") {
         await onCopyResult(png);
         setStatus("Image copied.");
       } else {
         await onSave(png, clip?.id);
         closingRef.current = true;
-        try { await discardDraft(clip?.id); await finishClose(); }
+        try { if (!quickCrop) await discardDraft(clip?.id); await finishClose(); }
         catch(e) { setStatus("Image saved to history."); setError("Image saved, but the editor could not finish closing: " + messageOf(e)); }
       }
     } catch (exportError) {
@@ -589,7 +593,7 @@ export function AnnotatorModal({
   const ready = !loading && !!image;
   const toolHint =
     tool === "crop"
-      ? crop ? "Drag any edge or corner to resize. Arrow keys move; focus a handle to resize. Enter applies." : "Draw an area on the image, or choose Adjust edges to start from the full image."
+      ? crop ? quickCrop ? "Drag edges or draw an area. Ctrl+C copies the selection; Ctrl+S saves it." : "Drag any edge or corner to resize. Arrow keys move; focus a handle to resize. Enter applies." : "Draw an area on the image, or choose Adjust edges to start from the full image."
       : tool === "text"
         ? "Enter text, then click the image to place it."
         : tool === "step"
@@ -610,7 +614,7 @@ export function AnnotatorModal({
     >
       <header className="annotator-header">
         <div>
-          <h2 id="annotator-title">Edit image</h2>
+          <h2 id="annotator-title">{quickCrop ? "Quick crop" : "Edit image"}</h2>
           <span>
             {image
               ? `${image.width.toLocaleString()} × ${image.height.toLocaleString()} px`
@@ -640,7 +644,7 @@ export function AnnotatorModal({
         </div>
       </header>
       <div className="annotator-tools" role="group" aria-label="Image tools">
-        {tools.map(({ id, label, icon: Icon }) => (
+        {tools.filter(item => !quickCrop || item.id === "crop" || item.id === "pan").map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             aria-pressed={tool === id}
@@ -836,7 +840,7 @@ export function AnnotatorModal({
           <p>{status}</p>
         ) : (
           <p>
-            Save creates a new image in history. The original stays available.
+            {quickCrop ? "Select an area. Ctrl+C copies it; Ctrl+S saves a new image. Close leaves the original unchanged." : "Save creates a new image in history. The original stays available."}
           </p>
         )}
       </div>
@@ -847,7 +851,8 @@ export function AnnotatorModal({
         </button>
         <button
           onClick={() => void exportImage("copy")}
-          disabled={!ready || !!busy || drawing || cropChanged}
+          disabled={!ready || !!busy || drawing || (!quickCrop && cropChanged)}
+          title="Copy image (Ctrl+C)"
         >
           <Copy size={16} />
           {busy === "copy" ? "Copying…" : "Copy image"}
@@ -855,7 +860,7 @@ export function AnnotatorModal({
         <button
           className="is-primary"
           onClick={() => void exportImage("save")}
-          disabled={!ready || !!busy || drawing || cropChanged}
+          disabled={!ready || !!busy || drawing || (!quickCrop && cropChanged)}
         >
           <Save size={16} />
           {busy === "save" ? "Saving…" : "Save image"}

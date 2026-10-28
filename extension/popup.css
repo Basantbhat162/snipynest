@@ -44,9 +44,34 @@ h2 { margin: 0; font-size: 14px; font-weight: 650; }
 p { margin: 0; overflow-wrap: anywhere; }
 .capture-form { padding: 22px 22px 18px; }
 .intro { margin: 6px 0 22px; color: var(--muted); }
+.settings-link { width: auto; margin-left: auto; min-height: 34px; padding: 6px 10px; font-size: 12px; }
+.quick-captures { display: grid; gap: 8px; }
+.quick-capture { display: flex; justify-content: space-between; align-items: center; gap: 10px; text-align: left; min-height: 65px; }
+.quick-capture strong { display: block; font-size: 14px; }
+.quick-capture small { display: block; margin-top: 3px; font-size: 11px; font-weight: 400; }
+.quick-capture.secondary small { color: var(--muted); }
+kbd { font: 11px/1.4 "Segoe UI", sans-serif; white-space: nowrap; opacity: .9; }
+.advanced-capture { margin-top: 16px; }
+.advanced-capture summary { cursor: pointer; color: var(--muted); padding: 4px 0; }
+.advanced-capture[open] summary { margin-bottom: 14px; }
+.advanced-capture label[for="captureFormat"] { margin-top: 14px; }
+.options-page { width: auto; max-width: none; }
+.options-page main { width: min(100%, 700px); margin: 24px auto; padding: 0 24px 24px; }
+.options-page section { padding: 24px 0; border-bottom: 1px solid var(--line); }
+.options-page h2 { font-size: 18px; margin-bottom: 8px; }
+.options-page .brand-header { padding: 16px 0; background: transparent; }
+.options-page .button-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.options-page .button-row > button { width: auto; }
+.options-page dl { margin: 16px 0; }
+.options-page dl > div { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.options-page dd { margin: 0; font-weight: 600; }
+.options-page ol { padding-left: 22px; }
+.options-page li { margin: 8px 0; }
+.options-page p + p { margin-top: 10px; }
+.options-page [role="status"] { margin-top: 14px; color: var(--muted); }
 label[for] { display: block; margin-bottom: 6px; font-weight: 600; }
 select { display: block; width: 100%; min-width: 0; min-height: 42px; padding: 9px 10px; border: 1px solid #afbec9; border-radius: 7px; background: var(--surface); color: var(--foreground); font: inherit; }
-.field-hint { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.field-hint { margin-top: 6px; font-size: 12px; color: var(--muted); }
 .slow-option { display: flex; align-items: flex-start; gap: 9px; margin: 18px 0; cursor: pointer; }
 .slow-option input { flex-shrink: 0; margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--accent); }
 .slow-option small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
@@ -68,7 +93,7 @@ progress::-webkit-progress-value { background: var(--accent); border-radius: 3px
 .section-label { color: var(--muted); font-size: 11px; font-weight: 600; }
 .retained-result { padding: 18px 22px; border-top: 1px solid var(--line); background: var(--surface); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.section-heading > span { color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .06em; }
+.section-heading > span { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .06em; }
 .preview-stage { display: grid; place-items: center; min-height: 80px; max-height: 150px; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: var(--background); }
 #preview { display: block; max-width: 100%; width: auto; max-height: 148px; object-fit: contain; }
 .result-actions { display: flex; align-items: stretch; gap: 8px; margin-top: 12px; }
@@ -76,7 +101,7 @@ progress::-webkit-progress-value { background: var(--accent); border-radius: 3px
 .save-action { display: flex; align-items: center; justify-content: center; min-height: 42px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 7px; text-decoration: none; font-weight: 600; }
 .save-action:hover { background: var(--accent-soft); border-color: #a3c9c1; }
 .retained-result > small { display: block; color: var(--muted); margin-top: 10px; font-size: 11px; }
-footer { padding: 15px 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+footer { padding: 15px 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .shortcut-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 .shortcut { font-size: 11px; font-weight: 600; color: var(--foreground); }
 a { color: var(--accent); text-underline-offset: 3px; }

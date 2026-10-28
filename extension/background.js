@@ -1,10 +1,12 @@
 import { createCaptureController } from './capture-core.mjs';
 import { copyInCapturedPage } from './clipboard-delivery.mjs';
+import { createDesktopControl } from './desktop-control.mjs';
 
 let creatingOffscreen;
 let sessionId;
 let requestTab;
 let captureMode = "full";
+let outputFormat = 'png';
 let keepResult = false;
 let settleMs = 500;
 let starting = false;
@@ -211,7 +213,7 @@ const controller = createCaptureController({
     if (!sameDocument) throw new Error('The page navigated or reloaded during capture. Try again on the loaded page.');
   },
   capture: tab => chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' }),
-  start: async metrics => { await ensureOffscreen(); await offscreen('start', metrics); },
+  start: async metrics => { await ensureOffscreen(); await offscreen('start', {...metrics,outputFormat}); },
   append: (_, frame) => { trace({stage:'frame',y:frame.y}); return offscreen('append', frame); },
   finish: async () => {
     const result = await offscreen('finish');
@@ -221,7 +223,7 @@ const controller = createCaptureController({
       // A document token prevents writing a prior capture after navigation.
       try {
         const payload = await offscreen('clipboard-payload', {resultId: result.resultId});
-        const copied = await inject(requestTab, copyInCapturedPage, [sessionId, payload.base64]);
+        const copied = await inject(requestTab, copyInCapturedPage, [sessionId, payload.base64, payload.pdfBase64]);
         if (copied === true) { result.copied = true; delete result.warning; }
       } catch { trace({stage:'clipboard-pending'}); }
     }
@@ -253,25 +255,29 @@ const controller = createCaptureController({
   },
 });
 
-async function beginCapture(tab, mode = 'full', slow = false) {
+async function beginCapture(tab, mode = 'full', slow = false, format = 'png', saveSettings = true) {
   if (starting || controller.getStatus().busy) return Promise.resolve({ success: false, error: 'A capture is already running.' });
   starting = true;
-  requestTab = tab; captureMode = mode; settleMs = slow ? 1400 : 500; deliveryCopied=false;
-  try { await chrome.storage?.local?.set({captureSettings:{mode,slow}}); } catch {}
+  requestTab = tab; captureMode = mode; outputFormat = format; settleMs = slow ? 1400 : mode === 'visible' ? 0 : 500; deliveryCopied=false;
+  if (saveSettings) try { await chrome.storage?.local?.set({captureSettings:{mode,slow,format}}); } catch {}
   let result;
   try { result = await controller.capture(); } finally { starting = false; }
   return result;
 }
 chrome.commands.onCommand.addListener((command, tab) => {
-  if (command !== 'capture-full-page') return;
+  // Preserve the old command ID so an installed Alt+Shift+S binding becomes a
+  // visible snapshot on update; scrolling capture has its own new command.
+  if (!['capture-full-page','capture-long-page','capture-full-page-pdf'].includes(command)) return;
   void (async()=>{
     let settings;
     try { settings = (await chrome.storage?.local?.get('captureSettings'))?.captureSettings; } catch {}
-    await beginCapture(tab, settings?.mode === 'region' ? 'full' : settings?.mode || 'full', settings?.slow === true);
+    await beginCapture(tab, command === 'capture-full-page' ? 'visible' : 'full', command !== 'capture-full-page' && settings?.slow === true, command === 'capture-full-page-pdf' ? 'pdf' : 'png', false);
   })();
 });
 chrome.runtime.onMessage.addListener((request, sender, respond) => {
   if (sender.id !== chrome.runtime.id || request.target === 'offscreen' || request.target === 'popup') return;
+  if (request.action==='desktop-control-status'){respond(desktopControl.status());return;}
+  if (request.action==='desktop-control-set'){desktopControl.setEnabled(request.enabled).then(respond).catch(error=>respond({connected:false,message:error.message}));return true;}
   if (request.action === 'capture-status') { respond({...lastStatus,busy:starting || controller.getStatus().busy}); return; }
   if (request.action === 'capture-settings') {
     (async()=>{try {return (await chrome.storage?.local?.get('captureSettings'))?.captureSettings || {};} catch {return {};}})().then(respond);return true;
@@ -283,13 +289,15 @@ chrome.runtime.onMessage.addListener((request, sender, respond) => {
     chrome.action.setBadgeText({text:''}).catch(()=>{});respond({success:true});return;
   }
   if (request.action === 'cancel-capture') { controller.cancel(); if(requestTab)void inject(requestTab,()=>window.__omnicopyCapture?.cancelSelection?.()).catch(()=>{}); respond({ success: true }); return; }
-  if (request.action === 'capture-full-page') { beginCapture(request.tab, ['visible','feed','region'].includes(request.mode) ? request.mode : 'full', request.slow === true).then(respond); return true; }
+  if (request.action === 'capture-full-page') { beginCapture(request.tab, ['visible','feed','region'].includes(request.mode) ? request.mode : 'full', request.slow === true, request.format === 'pdf' ? 'pdf' : 'png').then(respond); return true; }
   if (request.action === 'start-capture') {
     if (starting || controller.getStatus().busy) { respond({ success: false, error: 'A capture is already running.' }); return; }
-    void beginCapture(request.tab, ['visible','feed','region'].includes(request.mode) ? request.mode : 'full', request.slow === true);
+    void beginCapture(request.tab, ['visible','feed','region'].includes(request.mode) ? request.mode : 'full', request.slow === true, request.format === 'pdf' ? 'pdf' : 'png');
     respond({ success: true }); return;
   }
   if (request.action === 'result-preview' || request.action === 'retry-copy') {
     offscreen(request.action).then(respond).catch(error => respond({ success: false, error: error.message })); return true;
   }
 });
+const desktopControl=createDesktopControl(chrome,beginCapture,()=>starting||controller.getStatus().busy);
+void desktopControl.restore().catch(()=>{});

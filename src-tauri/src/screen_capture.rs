@@ -18,15 +18,15 @@ impl Drop for CaptureGuard {
         CAPTURING.store(false, Ordering::SeqCst);
     }
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScreenRect {
     pub x: i32,
     pub y: i32,
     pub width: i32,
     pub height: i32,
 }
-/// Snapshot the complete monitor under the pointer, including its taskbar.
-pub fn monitor_at(cursor: (i32, i32)) -> Result<ScreenRect, String> {
+/// Snapshot the monitor under the pointer, optionally using its taskbar-free bounds.
+pub fn monitor_at(cursor: (i32, i32), exclude_taskbar: bool) -> Result<ScreenRect, String> {
     unsafe {
         let monitor = MonitorFromPoint(
             POINT {
@@ -40,13 +40,140 @@ pub fn monitor_at(cursor: (i32, i32)) -> Result<ScreenRect, String> {
         if monitor.is_null() || GetMonitorInfoW(monitor, &mut info) == 0 {
             return Err("Windows could not find the monitor to capture".into());
         }
-        Ok(ScreenRect {
-            x: info.rcMonitor.left,
-            y: info.rcMonitor.top,
-            width: info.rcMonitor.right - info.rcMonitor.left,
-            height: info.rcMonitor.bottom - info.rcMonitor.top,
-        })
+        let mut rect = capture_bounds(info.rcMonitor, info.rcWork, exclude_taskbar)?;
+        if exclude_taskbar {
+            // An auto-hidden taskbar can be revealed over rcWork. Inspect only shell taskbars.
+            windows_sys::Win32::UI::WindowsAndMessaging::EnumWindows(
+                Some(exclude_visible_taskbar),
+                &mut rect as *mut _ as isize,
+            );
+        }
+        Ok(rect)
     }
+}
+unsafe extern "system" fn exclude_visible_taskbar(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    data: isize,
+) -> i32 {
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    let mut name = [0u16; 64];
+    let count = GetClassNameW(hwnd, name.as_mut_ptr(), 64);
+    let class = String::from_utf16_lossy(&name[..count.max(0) as usize]);
+    if (class == "Shell_TrayWnd" || class == "Shell_SecondaryTrayWnd") && IsWindowVisible(hwnd) != 0
+    {
+        let mut bar = std::mem::zeroed();
+        if GetWindowRect(hwnd, &mut bar) != 0 {
+            trim_taskbar(&mut *(data as *mut ScreenRect), bar);
+        }
+    }
+    1
+}
+fn trim_taskbar(rect: &mut ScreenRect, bar: windows_sys::Win32::Foundation::RECT) {
+    let right = rect.x + rect.width;
+    let bottom = rect.y + rect.height;
+    let width = (right.min(bar.right) - rect.x.max(bar.left)).max(0);
+    let height = (bottom.min(bar.bottom) - rect.y.max(bar.top)).max(0);
+    if width == 0 || height == 0 {
+        return;
+    }
+    if width >= rect.width / 2 && height < rect.height / 4 {
+        if bar.top <= rect.y {
+            rect.y = bar.bottom.min(bottom);
+            rect.height = bottom - rect.y;
+        } else if bar.bottom >= bottom {
+            rect.height = bar.top - rect.y;
+        }
+    } else if height >= rect.height / 2 && width < rect.width / 4 {
+        if bar.left <= rect.x {
+            rect.x = bar.right.min(right);
+            rect.width = right - rect.x;
+        } else if bar.right >= right {
+            rect.width = bar.left - rect.x;
+        }
+    }
+}
+#[cfg(test)]
+mod work_bounds_tests {
+    use super::*;
+    use windows_sys::Win32::Foundation::RECT;
+    fn r(left: i32, top: i32, right: i32, bottom: i32) -> RECT {
+        RECT {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+    #[test]
+    fn work_bounds_handle_all_edges_negative_coordinates_and_full_monitor_opt_out() {
+        let monitor = r(-2560, -400, 0, 1040);
+        for work in [
+            r(-2560, -400, 0, 1000),
+            r(-2560, -360, 0, 1040),
+            r(-2520, -400, 0, 1040),
+            r(-2560, -400, -40, 1040),
+        ] {
+            let bounds = capture_bounds(monitor, work, true).unwrap();
+            assert_eq!(
+                (bounds.x, bounds.y, bounds.width, bounds.height),
+                (
+                    work.left,
+                    work.top,
+                    work.right - work.left,
+                    work.bottom - work.top
+                )
+            );
+            assert_eq!(
+                capture_bounds(monitor, work, false).unwrap(),
+                ScreenRect {
+                    x: -2560,
+                    y: -400,
+                    width: 2560,
+                    height: 1440
+                }
+            );
+        }
+        assert!(capture_bounds(monitor, r(-2600, -400, 0, 1040), true).is_err());
+    }
+    #[test]
+    fn revealed_auto_hide_taskbars_trim_only_the_selected_monitor_edge() {
+        let mut bounds = ScreenRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+        };
+        trim_taskbar(&mut bounds, r(0, 1032, 1920, 1080));
+        assert_eq!(bounds.height, 1032);
+        trim_taskbar(&mut bounds, r(-1920, 0, 0, 1080));
+        assert_eq!(bounds.width, 1920);
+        trim_taskbar(&mut bounds, r(0, 100, 1920, 200));
+        assert_eq!(bounds.height, 1032);
+        trim_taskbar(&mut bounds, r(0, 0, 48, 1080));
+        assert_eq!((bounds.x, bounds.width), (48, 1872));
+    }
+}
+fn capture_bounds(
+    monitor: windows_sys::Win32::Foundation::RECT,
+    work: windows_sys::Win32::Foundation::RECT,
+    exclude: bool,
+) -> Result<ScreenRect, String> {
+    let r = if exclude { work } else { monitor };
+    if r.left < monitor.left
+        || r.top < monitor.top
+        || r.right > monitor.right
+        || r.bottom > monitor.bottom
+        || r.left >= r.right
+        || r.top >= r.bottom
+    {
+        return Err("Windows reported invalid monitor work bounds".into());
+    }
+    Ok(ScreenRect {
+        x: r.left,
+        y: r.top,
+        width: r.right - r.left,
+        height: r.bottom - r.top,
+    })
 }
 fn pixel_length(width: i32, height: i32) -> Result<usize, String> {
     if width <= 0 || height <= 0 || (width as u64) * (height as u64) > 32_000_000 {
@@ -206,7 +333,14 @@ pub async fn capture_monitor(app: tauri::AppHandle) -> Result<(), String> {
             {
                 return Err("Windows could not locate the pointer".to_string());
             }
-            let rect = monitor_at((cursor.x, cursor.y))?;
+            let rect = monitor_at(
+                (cursor.x, cursor.y),
+                handle
+                    .state::<crate::AppState>()
+                    .preferences
+                    .read()
+                    .exclude_taskbar,
+            )?;
             let area = crate::window::monitor_work_area_at((cursor.x, cursor.y));
             if let Some(main) = handle.get_webview_window("main") {
                 crate::commands::hide_history_window(&main)?;

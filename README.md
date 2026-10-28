@@ -2,6 +2,8 @@
 
 A Windows clipboard workspace with searchable history, screenshot editing, a small Capture Pad, and a browser companion for webpage screenshots.
 
+**Current source: 1.6.0 development build.** Quick crop, PDF capture, taskbar exclusion and single-key controls described below require this build and an updated Companion. The public downloads below remain 1.5.1.
+
 ## Download for Windows
 
 **[Download Windows installer (.exe)](https://github.com/Basantbhat162/snipynest/releases/download/v1.5.1-preview/SnipyNest_1.5.1_x64-setup.exe)**
@@ -42,7 +44,7 @@ For updates, extract the new ZIP into the existing extension folder (or remove t
 
 ## Appearance
 
-Open **Settings & storage → Appearance → Theme** and choose **Light** or **Dark**. The choice saves immediately and applies to history, Capture Pad and the editor. The browser extension has its own **Theme** selector; its choice is saved separately.
+Open **Settings & storage → Appearance → Theme** and choose **Light** or **Dark**. The choice saves immediately and applies to history, Capture Pad and the editor. Companion has its own theme selector in **Settings**; its choice is saved separately.
 
 History filters share one compact row. The pin and trash icons beside Links open Pinned and Trash; hover or keyboard focus exposes their accessible names.
 
@@ -52,11 +54,14 @@ History filters share one compact row. The pin and trash icons beside Links open
 | --- | --- |
 | Open or hide history | Ctrl+Shift+V; alternative Alt+Shift+V |
 | Start a Windows screen snip | Ctrl+Shift+S or Windows+Shift+S |
-| Copy the whole monitor under the pointer | Ctrl+Alt+S, then Ctrl+V in your destination |
-| Capture a webpage | Alt+Shift+S in the browser; check browser shortcut settings for conflicts |
+| Copy the monitor under the pointer | Ctrl+Alt+S, then Ctrl+V in your destination; taskbar excluded by default |
+| Copy the visible browser area as PNG | Alt+Shift+S; captures the current viewport without scrolling |
+| Copy a full scrolling webpage as PNG | Alt+Shift+L |
+| Capture a full scrolling webpage as PDF and copy its PNG | Alt+Shift+P |
 | Search history | Ctrl+K in the app |
 | Open screenshot editor | Crop/edit control on an image card |
 | Editor fullscreen / fit / 100% | F11 / Ctrl+0 / Ctrl+1 |
+| Copy / save a quick crop | Crop button on Capture Pad, then Ctrl+C / Ctrl+S |
 | Save an edited copy | Ctrl+S inside the editor |
 
 Restoring one of the 64 most recently seen images updates history quietly instead of replaying capture sound or reopening the Pad. Explicit Windows snips still notify, even with identical pixels.
@@ -67,7 +72,19 @@ Select clips using their checkboxes. Open **Select** for **Select this page** an
 
 Crop opens with a full-image guide. Drag any edge or corner, or choose **Draw area** to draw a new selection. Focus a handle and use arrow keys for one-pixel adjustments (Shift for ten pixels), then choose **Apply crop**. **Open maximized window** gives the editor the full working area of its current monitor. Originals stay unchanged.
 
-Quick monitor capture includes the taskbar and hides SnipyNest surfaces first. When monitoring is paused it copies only to the clipboard, without adding history or playing capture feedback. Protected content may appear blank.
+For a faster crop, use the small **Quick crop** button on Capture Pad. Resize the guide or draw an area, then press **Ctrl+C** to copy that selection immediately. **Ctrl+S** saves the selection as a new image in history. Neither needs Apply crop first. Escape or Close leaves the original unchanged and closes without a discard prompt. Quick crop leaves any unfinished regular-editor draft alone; the regular image editor keeps its existing draft and discard controls.
+
+In Companion, choose **PDF + PNG clipboard image** or press **Alt+Shift+P** for a full scrolling capture. The PDF contains image pages rather than selectable webpage text. The same capture copies a PNG for pasting. With the updated desktop running and monitoring enabled, the PDF appears in Capture Pad and All history; drag it to an app that accepts PDF files. Copy on a PDF history card copies the PDF as a file. Use **Save PDF** in the extension popup if clipboard delivery is blocked. Browser shortcut settings show actual assignments and conflicts. The extension captures page content, without browser chrome; use Ctrl+Alt+S for the whole monitor under the pointer.
+
+Quick monitor capture hides SnipyNest surfaces first. **Settings → Global shortcuts → Exclude taskbar** is on by default; turn it off to include the entire monitor. It uses Windows work-area coordinates and trims a revealed auto-hide taskbar. When monitoring is paused it copies only to the clipboard, without adding history or playing capture feedback. Protected content may appear blank.
+
+### Use spare keys
+
+In **Settings → Single-key capture**, choose a key beside each action, or use **Record**. For example, assign Page Up to Screen snip and Page Down to Quick snapshot. Enable single-key mode, then **Save settings**. Only assigned keys are reserved while the app runs, including in the tray; modifier combinations keep their normal behavior. Recording releases existing assignments first. Conflicts are reported instead of silently replacing another app’s reservation.
+
+Use **Release keys now**, the tray’s **Disable single-key mode**, or Exit to restore those keys. Mappings are remembered, but mode starts off after restarting unless **Enable again at app startup** is selected. Navigation keys, F1–F11, Print Screen, Pause, Menu/Application and the physical key beside 1 are supported. Fn is handled by keyboard firmware; F12 is reserved by Windows. Print Screen can conflict with Windows snipping. No vendor keyboard utility or hardware identity is required.
+
+For browser actions, choose Brave, Chrome or Edge in **Browser keys** and click **Set up browser connection**. In Companion **Settings**, choose **Enable desktop-key access** and accept the optional local-native and site-access permissions. Then assign Browser visible PNG, Browser full PNG or Browser full PDF in desktop Settings. Keep the target browser tab focused. Multiple focused/ambiguous connections, tab changes and busy capture requests are refused. Disconnect in Companion Settings to remove the extra permissions. Normal browser shortcuts are changed in the browser’s shortcut settings; Companion displays their actual assignments and links there.
 
 ## When capture fails
 

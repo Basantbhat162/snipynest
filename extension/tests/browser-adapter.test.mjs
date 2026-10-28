@@ -20,6 +20,7 @@ function pageNode(position, top = 'auto', boundsTop = 0) {
 const fixed = pageNode('fixed');
 const stickyInFlow = pageNode('sticky', '0px', 500);
 let listener;
+let commandListener;
 let failCapture = false;
 let focused = true;
 let currentUrl = 'https://example.test/page';
@@ -68,10 +69,23 @@ globalThis.chrome = {
     closeDocument: async () => { offscreenOpen = false; },
   },
   action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {}, setTitle: async () => {} },
-  commands: { onCommand: { addListener() {} } },
+  commands: { onCommand: { addListener(callback) {commandListener=callback;} } },
 };
 await import('../background.js');
 function request(action, options = {}) { return new Promise(resolve => listener({ action, ...options }, { id: 'companion' }, resolve)); }
+
+test('shortcuts select visible PNG, full PNG and full PDF independently of saved popup mode', async () => {
+  const storage=chrome.storage;
+  chrome.storage={local:{get:async()=>({captureSettings:{mode:'feed',format:'pdf'}})}};
+  try {
+    for(const [command,height,format] of [['capture-full-page',800,'png'],['capture-long-page',1900,'png'],['capture-full-page-pdf',1900,'pdf']]) {
+      commandListener(command,{id:7,windowId:3,url:currentUrl});
+      do { await new Promise(resolve=>setTimeout(resolve,30)); } while((await request('capture-status')).busy);
+      assert.equal(metrics.totalHeight,height);assert.equal(metrics.outputFormat,format);
+      assert.equal(window.scrollY,300);assert.equal(styles.size,0);
+    }
+  } finally {chrome.storage=storage;}
+});
 
 test('clipboard failure retains the PNG without opening or focusing a result tab', async () => {
   const send = chrome.runtime.sendMessage, contexts = chrome.runtime.getContexts;

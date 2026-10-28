@@ -47,3 +47,14 @@ test('Pad history control opens history and refuses a second window action durin
  await pad.flush();
  }finally{pad.cleanup();}
 });
+
+test('Pad quick crop targets its displayed image and is disabled for PDFs',async()=>{
+ const pad=await fixture();try{
+ pad.subscriptions.forEach(done=>done());await pad.flush();pad.reads[0]([{id:'image',clip_type:'image'}]);await pad.flush();
+ const crop=()=>pad.nodes().find(n=>n.props?.className==='pad-crop');
+ assert.equal(crop().props.disabled,false);crop().props.onClick();
+ assert.deepEqual(pad.calls.at(-1),{name:'open_from_pad',args:{quickCropId:'image'}});
+ pad.publish();await pad.flush();pad.reads[1]([{id:'pdf',clip_type:'file'}]);await pad.flush();
+ assert.equal(crop().props.disabled,true);
+ }finally{pad.cleanup();}
+});
