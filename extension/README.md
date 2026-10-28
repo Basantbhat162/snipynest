@@ -1,4 +1,4 @@
-# SnipyNest Companion 1.6.0 development build
+# SnipyNest Companion 1.6.1 development build
 
 Capture supported webpages as PNG or PDF, copy, or save the completed file. SnipyNest desktop must be running with monitoring enabled to collect the clipboard capture. Copied does not mean desktop storage acknowledged it. Optional Native Messaging carries desktop-key control messages; image and PDF bytes still use the bounded clipboard bridge.
 

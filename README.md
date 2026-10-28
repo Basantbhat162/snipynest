@@ -2,7 +2,7 @@
 
 A Windows clipboard workspace with searchable history, screenshot editing, a small Capture Pad, and a browser companion for webpage screenshots.
 
-**Current source: 1.6.0 development build.** Quick crop, PDF capture, taskbar exclusion and single-key controls described below require this build and an updated Companion. The public downloads below remain 1.5.1.
+**Current source: 1.6.1 development build.** This fixes recording turning off single-key mode in 1.6.0. Quick crop, PDF capture, taskbar exclusion and single-key controls described below require the updated desktop and Companion. The public downloads below remain 1.5.1.
 
 ## Download for Windows
 
@@ -80,7 +80,7 @@ Quick monitor capture hides SnipyNest surfaces first. **Settings → Global shor
 
 ### Use spare keys
 
-In **Settings → Single-key capture**, choose a key beside each action, or use **Record**. For example, assign Page Up to Screen snip and Page Down to Quick snapshot. Enable single-key mode, then **Save settings**. Only assigned keys are reserved while the app runs, including in the tray; modifier combinations keep their normal behavior. Recording releases existing assignments first. Conflicts are reported instead of silently replacing another app’s reservation.
+In **Settings → Single-key capture**, choose a key beside each action, or use **Record**. For example, assign Page Up to Screen snip and Page Down to Quick snapshot. Enable single-key mode, then **Save settings**. Only assigned keys are reserved while the app runs, including in the tray; modifier combinations keep their normal behavior. Recording temporarily releases assignments and restores them afterward, including when cancelled or Settings closes. It preserves the Enable single-key mode setting. The status below the switch shows whether keys are actually active in Windows. Conflicts are reported instead of silently replacing another app’s reservation.
 
 Use **Release keys now**, the tray’s **Disable single-key mode**, or Exit to restore those keys. Mappings are remembered, but mode starts off after restarting unless **Enable again at app startup** is selected. Navigation keys, F1–F11, Print Screen, Pause, Menu/Application and the physical key beside 1 are supported. Fn is handled by keyboard firmware; F12 is reserved by Windows. Print Screen can conflict with Windows snipping. No vendor keyboard utility or hardware identity is required.
 

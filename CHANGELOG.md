@@ -1,7 +1,10 @@
 # Changelog
 
-## 1.6.0 — unreleased
+## 1.6.1 — unreleased
 
+- Fixed key recording permanently disabling single-key mode: recording now suspends and restores registrations while preserving the enabled setting, including cancel/close. Settings shows actual Windows registration status, and Save reconciles missing registrations.
+
+## 1.6.0 — unreleased
 - Added Capture Pad Quick crop: Ctrl+C copies a pending selection and Ctrl+S saves it directly, preserving the original and regular-editor drafts.
 - Split browser shortcuts into visible PNG (Alt+Shift+S), full scrolling PNG (Alt+Shift+L) and full scrolling PDF plus clipboard PNG (Alt+Shift+P).
 - Added local paginated PDF output, popup PDF download, bounded clipboard delivery to desktop, PDF storage and native file dragging from Capture Pad/history.

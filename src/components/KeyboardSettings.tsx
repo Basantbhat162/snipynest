@@ -1,4 +1,4 @@
-import {useEffect,useState} from "react";
+import {useEffect,useRef,useState} from "react";
 import {invoke} from "@tauri-apps/api/core";
 import type {Preferences} from "../types/clip";
 type Binding=NonNullable<Preferences["singleKeyBindings"]>[number];
@@ -14,8 +14,20 @@ export function KeyboardSettings({draft,onChange,busy,onBusyChange}:{draft:Prefe
   const [browserMessage,setBrowserMessage]=useState("");
   const [browserError,setBrowserError]=useState("");
   const [connection,setConnection]=useState<{connected:boolean;ready:boolean}|null>(null);
+  const [keyStatus,setKeyStatus]=useState<{active:boolean;recording:boolean}|null>(null);
+  const recordingToken=useRef<string|null>(null);
+  const mounted=useRef(true);
   const bindings=draft.singleKeyBindings||[];
   useEffect(()=>{onBusyChange(working||recording!==null);return()=>onBusyChange(false);},[working,recording,onBusyChange]);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;const token=recordingToken.current;recordingToken.current=null;if(token)void invoke("finish_key_recording",{token}).catch(()=>{});};},[]);
+  const finishRecording=async()=>{
+    const token=recordingToken.current;recordingToken.current=null;setRecording(null);
+    if(!token)return;
+    setWorking(true);
+    try{await invoke("finish_key_recording",{token});}
+    catch(error){if(mounted.current)setError(String(error));}
+    finally{if(mounted.current)setWorking(false);}
+  };
   const assign=(action:Binding["action"],key:string)=>{
     if(key && bindings.some(binding=>binding.key===key && binding.action!==action)){setError(`${label(key)} is already assigned. Clear its other action first.`);return;}
     onChange({...draft,singleKeyBindings:[...bindings.filter(binding=>binding.action!==action),...(key?[{key,action}]:[])]});setError("");setMessage(key?`${label(key)} selected for ${actions.find(item=>item[0]===action)?.[1]}. Save settings to apply.`:"Key cleared. Save settings to apply.");
@@ -23,34 +35,39 @@ export function KeyboardSettings({draft,onChange,busy,onBusyChange}:{draft:Prefe
   useEffect(()=>{
     if(!recording)return;
     const keydown=(event:KeyboardEvent)=>{
+      if(!recordingToken.current)return;
       event.preventDefault();event.stopImmediatePropagation();
-      if(event.key==="Escape"){setRecording(null);return;}
+      if(event.key==="Escape"){setMessage("Recording cancelled. Previous key settings restored.");void finishRecording();return;}
       if(event.ctrlKey||event.altKey||event.shiftKey||event.metaKey){setError("Press one key without Ctrl, Shift, Alt or Windows.");return;}
       if(!keys.includes(event.code)){setError("Choose one of the supported keys below. Fn and F12 cannot be assigned.");return;}
-      assign(recording,event.code);setRecording(null);
+      assign(recording,event.code);void finishRecording();
     };
     window.addEventListener("keydown",keydown,true);return()=>window.removeEventListener("keydown",keydown,true);
   });
-  useEffect(()=>{let active=true;const refresh=()=>void invoke<{connected:boolean;ready:boolean}>("browser_control_status").then(value=>{if(active)setConnection(value);}).catch(()=>{});refresh();const timer=setInterval(refresh,2000);return()=>{active=false;clearInterval(timer);};},[]);
+  useEffect(()=>{let active=true;const refresh=()=>{
+    void invoke<{connected:boolean;ready:boolean}>("browser_control_status").then(value=>{if(active)setConnection(value);}).catch(()=>{});
+    void invoke<{active:boolean;recording:boolean}>("single_key_status").then(value=>{if(active)setKeyStatus(value);}).catch(()=>{});
+  };refresh();const timer=setInterval(refresh,2000);return()=>{active=false;clearInterval(timer);};},[]);
   const record=async(action:Binding["action"])=>{
     setWorking(true);setError("");
-    try{await invoke("disarm");onChange({...draft,singleKeyEnabled:false});setRecording(action);setMessage("Single-key mode is off while recording. Press a key, or Escape to cancel.");}
-    catch(error){setError(String(error));}finally{setWorking(false);}
+    try{const token=await invoke<string>("begin_key_recording");if(!mounted.current){await invoke("finish_key_recording",{token});return;}recordingToken.current=token;setRecording(action);setMessage("Keys are temporarily released while recording. Press a key, or Escape to cancel. Your enabled setting is preserved.");}
+    catch(error){if(mounted.current)setError(String(error));}finally{if(mounted.current)setWorking(false);}
   };
   return <>
     <fieldset className="settings-section keyboard-settings" disabled={busy||working}>
       <legend>Single-key capture</legend>
       <p className="settings-description">Assign spare keys on any standard Windows keyboard. Assigned keys replace their normal action while this mode is on, including while SnipyNest is in the tray.</p>
       <label className="preference-toggle"><span>Enable single-key mode<small>Only your assigned bare keys are reserved. Ctrl/Shift combinations stay available.</small></span><input type="checkbox" checked={draft.singleKeyEnabled??false} onChange={event=>onChange({...draft,singleKeyEnabled:event.target.checked})}/></label>
+      <p role="status" className="settings-description">{recording||keyStatus?.recording?"Listening for a key; capture keys are temporarily released.":keyStatus?.active?"Single-key mode is active in Windows.":keyStatus?"Single-key mode is off in Windows. Enable it and Save settings to activate your assignments.":"Checking active key registrations…"}</p>
       {actions.map(([action,title])=><div className="key-binding" key={action}>
         <label htmlFor={`key-${action}`}>{title}</label>
         <div className="key-binding-controls"><select id={`key-${action}`} value={bindings.find(binding=>binding.action===action)?.key||""} onChange={event=>assign(action,event.target.value)}><option value="">Not assigned</option>{keys.map(key=><option key={key} value={key}>{label(key)}</option>)}</select><button type="button" className="button" aria-label={`Record key for ${title}`} aria-pressed={recording===action} onClick={()=>void record(action)}>{recording===action?"Press key…":"Record"}</button></div>
       </div>)}
       <label className="preference-toggle"><span>Enable again at app startup<small>Otherwise mappings are saved and single-key mode starts off.</small></span><input type="checkbox" checked={draft.singleKeyResume??false} onChange={event=>onChange({...draft,singleKeyResume:event.target.checked})}/></label>
-      <button type="button" className="button" onClick={()=>void invoke("disarm").then(()=>{onChange({...draft,singleKeyEnabled:false});setMessage("Keys released immediately.");}).catch(error=>setError(String(error)))}>Release keys now</button>
+      <button type="button" className="button" onClick={()=>{recordingToken.current=null;setRecording(null);void invoke("disarm").then(()=>{onChange({...draft,singleKeyEnabled:false});setMessage("Keys released immediately.");}).catch(error=>setError(String(error)));}}>Release keys now</button>
       <p className="settings-description">Save settings to apply assignments. Exit the app or use the tray’s Disable single-key mode command to restore your keys. Print Screen may already be owned by Windows or another app.</p>
       <p role="status">{message}</p>{error&&<p role="alert" className="error-text">{error}</p>}
-      {recording&&<button type="button" className="text-button" onClick={()=>setRecording(null)}>Cancel recording</button>}
+      {recording&&<button type="button" className="text-button" onClick={()=>void finishRecording()}>Cancel recording</button>}
     </fieldset>
     <fieldset className="settings-section" disabled={busy||working}>
       <legend>Browser keys</legend>

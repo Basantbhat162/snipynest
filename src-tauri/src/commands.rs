@@ -489,6 +489,7 @@ fn update_preferences_inner(
     let state = app.state::<AppState>();
     preferences.validate()?;
     let mut current = state.preferences.write();
+    state.single_keys.cancel_recording();
     let bindings_changed = current.snip_shortcut != preferences.snip_shortcut
         || current.history_shortcut != preferences.history_shortcut
         || current.quick_capture_shortcut != preferences.quick_capture_shortcut;
@@ -502,7 +503,8 @@ fn update_preferences_inner(
         }
     }
     let keys_changed = current.single_key_enabled != preferences.single_key_enabled
-        || current.single_key_bindings != preferences.single_key_bindings;
+        || current.single_key_bindings != preferences.single_key_bindings
+        || state.single_keys.is_armed() != preferences.single_key_enabled;
     if keys_changed {
         if let Err(error) = state.single_keys.apply(
             preferences.single_key_enabled,
