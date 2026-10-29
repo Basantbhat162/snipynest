@@ -8,16 +8,15 @@
   <script type="module" src="theme.js"></script>
   <script src="popup.js" defer></script>
 </head>
-<body>
+<body class="popup-page">
   <main>
     <header class="brand-header">
       <span class="brand-mark"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3H4a1 1 0 0 0-1 1v4m13-5h4a1 1 0 0 1 1 1v4M3 16v4a1 1 0 0 0 1 1h4m8 0h4a1 1 0 0 0 1-1v-4"/><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg></span>
-      <div><span class="brand-name">SnipyNest</span><p class="brand-caption">Browser companion</p></div>
+      <div><span class="brand-name">SnipyNest</span><p class="brand-caption" id="extensionVersion">Browser companion</p></div>
     <button id="openSettings" class="settings-link secondary" type="button" aria-label="Open Companion settings">Settings</button></header>
     <p id="theme-status" role="alert"></p>
     <section class="capture-form" aria-labelledby="capture-title">
-      <h1 id="capture-title">Capture this page</h1>
-      <p class="intro">Choose a capture. It copies automatically.</p>
+      <h1 id="capture-title">Capture</h1>
       <div class="quick-captures">
         <button id="quickVisible" class="quick-capture" type="button"><span><strong>Quick snapshot</strong><small>Visible area · PNG to clipboard</small></span><kbd id="visibleShortcut">Unassigned</kbd></button>
         <button id="quickFull" class="quick-capture secondary" type="button"><span><strong>Scrolling image</strong><small>Full page · PNG to clipboard</small></span><kbd id="fullShortcut">Unassigned</kbd></button>
@@ -47,8 +46,8 @@
       <small>Available for five minutes, or until replaced.</small>
     </section>
     <footer>
-      <p id="shortcut" class="field-hint">Visible PNG: Alt+Shift+S · Full PNG: Alt+Shift+L · Full PDF: Alt+Shift+P</p><a href="chrome://extensions/shortcuts" id="shortcutsLink">Change shortcuts</a>
-      <details class="capture-help"><summary>Capture help</summary><p class="delivery">Keep this tab active until capture finishes. If copying is blocked, reopen this popup to copy or save. Run SnipyNest desktop to collect copied images in history. Protected browser pages need Windows snipping.</p><button id="saveDiagnostics" class="text-button" type="button">Save capture diagnostics</button></details>
+      <p id="shortcut" hidden></p><a href="chrome://extensions/shortcuts" id="shortcutsLink">Change shortcuts</a>
+      <details class="capture-help"><summary>Help</summary><p class="delivery">Keep this tab active until capture finishes. A small window may appear briefly to complete clipboard delivery. Run SnipyNest desktop with monitoring enabled to collect captures in the Pad. Protected browser pages need Windows snipping.</p><button id="saveDiagnostics" class="text-button" type="button">Save capture diagnostics</button></details>
     </footer>
   </main>
 </body>

@@ -2,6 +2,7 @@ const captureButton = document.getElementById('captureBtn');
 const cancelButton = document.getElementById('cancelBtn');
 const statusText = document.getElementById('status');
 const progress = document.getElementById('progress');
+document.getElementById('extensionVersion').textContent = `Companion · ${chrome.runtime.getManifest?.().version || 'development'}`;
 let loadedResult;
 let resultRequest = 0;
 let copying = false;
@@ -119,8 +120,15 @@ cancelButton.addEventListener('click', async () => {
   try { await chrome.runtime.sendMessage({ action: 'cancel-capture' }); statusText.textContent = 'Cancelling and restoring the page…'; }
   catch { render({ phase: 'error', message: 'The capture service stopped. Reload this webpage and the extension.' }); }
 });
-chrome.runtime.onMessage.addListener(message => {
+chrome.runtime.onMessage.addListener((message, _sender, respond) => {
   if (message.target === 'popup' && message.action === 'capture-status') render(message.status);
+  if (message.target !== 'popup' || message.action !== 'deliver-capture') return;
+  if (!document.hasFocus()) { respond({accepted:false}); return; }
+  respond({accepted:true});
+  if (!copying && autoCopiedResult !== message.resultId) {
+    autoCopiedResult = message.resultId;
+    void showResult().then(loaded => { if (loaded?.resultId === message.resultId) return copyResult(loaded); }).catch(()=>{});
+  }
 });
 void (async()=>{
   const generation = captureGeneration;

@@ -181,8 +181,8 @@ pub fn request(action: crate::keyboard::Action) -> Result<(), String> {
         .filter(|(_, s)| s.focused && s.ready && s.seen.elapsed() < Duration::from_secs(2))
         .map(|(id, _)| id.clone())
         .collect();
-    if sessions.len() != 1 {
-        return Err("Open a supported browser tab and connect Companion with desktop-key access enabled. Check the extension Settings.".into());
+    if let Some(message) = unavailable_message(&state, sessions.len()) {
+        return Err(message.into());
     }
     if state
         .pending
@@ -194,6 +194,27 @@ pub fn request(action: crate::keyboard::Action) -> Result<(), String> {
     let tab_id = state.sessions[&sessions[0]].tab_id;
     state.pending = Some((sessions[0].clone(), tab_id, action, Instant::now()));
     Ok(())
+}
+fn unavailable_message(state: &State, ready_count: usize) -> Option<&'static str> {
+    if ready_count == 1 {
+        return None;
+    }
+    if ready_count > 1 {
+        return Some("More than one browser session is ready. Focus just one browser window and try this desktop key again.");
+    }
+    let mut fresh = state
+        .sessions
+        .values()
+        .filter(|s| s.seen.elapsed() < Duration::from_secs(3))
+        .peekable();
+    if fresh.peek().is_none() {
+        return Some("This desktop browser key needs Companion connected. In SnipyNest Settings, set up Browser keys, then enable desktop-key access in Companion Settings. Browser Ctrl/Alt shortcuts work without that connection.");
+    }
+    if fresh.any(|s| s.focused) {
+        Some("Companion is connected, but this tab is not ready. Finish the current capture or open a normal webpage, then try again.")
+    } else {
+        Some("Companion is connected. Focus the webpage you want to capture, then press the desktop key again.")
+    }
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -375,6 +396,33 @@ pub fn run_host() -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn browser_key_errors_distinguish_connection_focus_and_readiness() {
+        let mut state = State::default();
+        assert!(unavailable_message(&state, 0)
+            .unwrap()
+            .contains("needs Companion connected"));
+        state.sessions.insert(
+            "test".into(),
+            Session {
+                seen: Instant::now(),
+                focused: false,
+                ready: true,
+                tab_id: Some(1),
+            },
+        );
+        assert!(unavailable_message(&state, 0)
+            .unwrap()
+            .contains("Focus the webpage"));
+        state.sessions.get_mut("test").unwrap().focused = true;
+        assert!(unavailable_message(&state, 0)
+            .unwrap()
+            .contains("tab is not ready"));
+        assert!(unavailable_message(&state, 2)
+            .unwrap()
+            .contains("More than one"));
+        assert!(unavailable_message(&state, 1).is_none());
+    }
     #[test]
     fn browser_registration_uses_the_windows_vendor_namespaces() {
         assert_eq!(

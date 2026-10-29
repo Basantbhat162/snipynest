@@ -2,7 +2,7 @@
 
 A Windows clipboard workspace with searchable history, screenshot editing, a small Capture Pad, and a browser companion for webpage screenshots.
 
-**Current source: 1.6.1 development build.** This fixes recording turning off single-key mode in 1.6.0. Quick crop, PDF capture, taskbar exclusion and single-key controls described below require the updated desktop and Companion. The public downloads below remain 1.5.1.
+**Current source: 1.6.2 development build.** Quick edit includes drawing and text tools; completed browser captures can use a focused delivery window when background clipboard access is denied. The features below require the updated desktop and Companion. The public downloads below remain 1.5.1.
 
 ## Download for Windows
 
@@ -66,13 +66,15 @@ History filters share one compact row. The pin and trash icons beside Links open
 
 Restoring one of the 64 most recently seen images updates history quietly instead of replaying capture sound or reopening the Pad. Explicit Windows snips still notify, even with identical pixels.
 
-Desktop shortcuts can be changed in Settings. The Capture Pad is a thumbnail shelf: click the image or history control to open history, drag the grip to move it, or drag the image into a compatible app. The count badge shows new captures; X hides the Pad. By default it hides after eight seconds of inactivity; hover, focus and drag pause the timer. Settings controls Pad visibility, sound and return after closing history. The Pad floats near the taskbar; it is not embedded in it.
+Desktop shortcuts can be changed in Settings. Click the Capture Pad image to open Quick edit, or a PDF to open it in your default PDF app. The history control opens history. Drag the thumbnail into a compatible app, or drag the top edge to move the Pad. The count badge shows new captures; X hides the Pad. By default it hides after eight seconds of inactivity; hover, focus and drag pause the timer. Settings controls Pad visibility, sound and return after closing history. The Pad floats near the taskbar; it is not embedded in it.
 
 Select clips using their checkboxes. Open **Select** for **Select this page** and **Trash all matching…**. Bulk Trash requires confirmation and supports Undo. All matching excludes pinned clips unless you include them. A successful drop clears the transferred selection; cancelling keeps it selected. Images drag as files; text drags as text. For a mixed selection, use Export. Editing saves a new image and preserves the original.
 
 Crop opens with a full-image guide. Drag any edge or corner, or choose **Draw area** to draw a new selection. Focus a handle and use arrow keys for one-pixel adjustments (Shift for ten pixels), then choose **Apply crop**. **Open maximized window** gives the editor the full working area of its current monitor. Originals stay unchanged.
 
-For a faster crop, use the small **Quick crop** button on Capture Pad. Resize the guide or draw an area, then press **Ctrl+C** to copy that selection immediately. **Ctrl+S** saves the selection as a new image in history. Neither needs Apply crop first. Escape or Close leaves the original unchanged and closes without a discard prompt. Quick crop leaves any unfinished regular-editor draft alone; the regular image editor keeps its existing draft and discard controls.
+For a faster crop, use the small **Quick crop** button on Capture Pad. Quick edit starts on Crop and also includes Pen, Arrow, Box, Ellipse, Highlight, Redact, Text and Step tools. Resize the guide, add markup, then press **Ctrl+C** to copy the selected area with your annotations. Switching tools keeps the crop. **Ctrl+S** saves a new image in history. Neither needs Apply crop first. Escape or Close leaves the original unchanged and closes without a discard prompt. Quick edit leaves unfinished regular-editor drafts alone.
+
+In history, click an image to open its editor or a PDF to open an independent copy in your default PDF app. Drag their previews to share. Text can be dragged from its content or grip; double-click selects the displayed text. Native text dragging uses the complete stored Clip.
 
 In Companion, choose **PDF + PNG clipboard image** or press **Alt+Shift+P** for a full scrolling capture. The PDF contains image pages rather than selectable webpage text. The same capture copies a PNG for pasting. With the updated desktop running and monitoring enabled, the PDF appears in Capture Pad and All history; drag it to an app that accepts PDF files. Copy on a PDF history card copies the PDF as a file. Use **Save PDF** in the extension popup if clipboard delivery is blocked. Browser shortcut settings show actual assignments and conflicts. The extension captures page content, without browser chrome; use Ctrl+Alt+S for the whole monitor under the pointer.
 
@@ -88,7 +90,7 @@ For browser actions, choose Brave, Chrome or Edge in **Browser keys** and click 
 
 ## When capture fails
 
-Try **Visible area** for one screen, **Feed** for bounded loaded content, or **Scrolling panel** for a page with an inner scrollbar. An explicitly partial result is not a complete page. Clipboard failure should leave a PNG available to copy again or save; reopen the extension popup. Shortcut capture never opens a result tab automatically. Protected browser pages require Windows snipping. No extension can guarantee every animation or custom scrolling site.
+Try **Visible area** for one screen, **Feed** for bounded loaded content, or **Scrolling panel** for a page with an inner scrollbar. An explicitly partial result is not a complete page. If offscreen and focused-page clipboard writes fail, a small extension window opens while the captured tab is still focused, copies the current PNG/PDF once, then closes. A failed write leaves Copy and Save available there. Opening an old retained capture never copies it automatically. Protected browser pages require Windows snipping. No extension can guarantee every animation or custom scrolling site.
 
 ## Privacy, help and contributing
 

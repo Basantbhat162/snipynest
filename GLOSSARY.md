@@ -53,12 +53,12 @@ The soft-delete quarantine area retaining removed Clips for a configurable recov
 _Avoid_: Recycle bin, deleted items, archive
 
 **Capture Pad**:
-The movable utility surface showing the latest image and unread count. Click opens Sidebar; drag the thumbnail to share; move the dedicated handle to reposition. It follows the cursor monitor sampled when an image reaches the clipboard, preserving manual placement on that monitor. It can dock beside the taskbar but is not an embedded taskbar widget.
+The movable utility surface showing the latest capture and unread count. Click its image for Quick edit or its PDF for the default PDF app; the history control opens Sidebar. Drag the thumbnail to share, or the top edge to reposition. It follows the cursor monitor sampled when a capture reaches the clipboard, preserving manual placement on that monitor. It can dock beside the taskbar but is not an embedded taskbar widget.
 
 In 1.6.0 it shows the latest image or PDF capture. Images have a Quick crop button; PDFs drag as files.
 
 **Quick crop**:
-The Capture Pad entry into a transient crop-only Annotator session. Copy exports the pending selection directly, Save creates a new image Clip, and Close discards only this transient selection without affecting the original or regular-editor Draft.
+The Capture Pad entry into a transient Annotator session, labelled Quick edit. It starts on Crop and includes all markup tools. Copy exports the pending selection with its annotations directly, Save creates a new image Clip, and Close discards only this transient session without affecting the original or regular-editor Draft.
 
 **PDF capture**:
 A Companion capture encoded as bounded A4 image pages, stored as a file Clip through an explicit custom clipboard representation. The same clipboard item includes a standard PNG for image paste. It is not a selectable-text webpage printout.

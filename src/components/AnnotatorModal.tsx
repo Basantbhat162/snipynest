@@ -381,8 +381,9 @@ export function AnnotatorModal({
           return;
         }
         if (gestureRef.current) {
+          const wasCrop = gestureRef.current.action.tool === "crop";
           cancelGesture();
-          setCrop(null);
+          if (wasCrop) setCrop(null);
         } else if (quickCrop) close();
         else if (crop) setCrop(null);
         else if (mode === "fullscreen") void switchMode("window");
@@ -406,7 +407,7 @@ export function AnnotatorModal({
       if (!editing && event.ctrlKey && event.key === "s") { event.preventDefault(); void exportImage("save"); }
       if (!editing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") { event.preventDefault(); event.stopImmediatePropagation(); void exportImage("copy"); }
       if (!editing && event.ctrlKey && ["0","1"].includes(event.key) && !busyRef.current && !gestureRef.current && !cropDrag.current && !closePrompt) { event.preventDefault(); setZoom(event.key === "0" ? null : 1); }
-      if (!editing && crop && image && event.key.startsWith("Arrow")) {
+      if (!editing && tool === "crop" && crop && image && event.key.startsWith("Arrow")) {
         event.preventDefault();
         if (busyRef.current || gestureRef.current || cropDrag.current || closePrompt) return;
         const step = event.shiftKey ? 10 : 1;
@@ -614,7 +615,7 @@ export function AnnotatorModal({
     >
       <header className="annotator-header">
         <div>
-          <h2 id="annotator-title">{quickCrop ? "Quick crop" : "Edit image"}</h2>
+          <h2 id="annotator-title">{quickCrop ? "Quick edit" : "Edit image"}</h2>
           <span>
             {image
               ? `${image.width.toLocaleString()} × ${image.height.toLocaleString()} px`
@@ -644,14 +645,16 @@ export function AnnotatorModal({
         </div>
       </header>
       <div className="annotator-tools" role="group" aria-label="Image tools">
-        {tools.filter(item => !quickCrop || item.id === "crop" || item.id === "pan").map(({ id, label, icon: Icon }) => (
+        {tools.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             aria-pressed={tool === id}
             disabled={!ready || !!busy || drawing}
             onClick={() => {
               setTool(id);
-              setCrop(id === "crop" && image ? initialCrop(image.width, image.height, aspect) : null);
+              if (quickCrop) {
+                if (id === "crop" && !crop && image) setCrop(initialCrop(image.width, image.height, aspect));
+              } else setCrop(id === "crop" && image ? initialCrop(image.width, image.height, aspect) : null);
               if (id === "crop") setCropMode("adjust");
               setStatus("");
             }}
@@ -767,17 +770,19 @@ export function AnnotatorModal({
             onPointerMove={updateGesture}
             onPointerUp={pointerUp}
             onPointerCancel={() => {
+              const wasCrop = gestureRef.current?.action.tool === "crop";
               cancelGesture();
-              setCrop(null);
+              if (wasCrop) setCrop(null);
             }}
             onLostPointerCapture={() => {
               if (gestureRef.current) {
+                const wasCrop = gestureRef.current.action.tool === "crop";
                 cancelGesture();
-                setCrop(null);
+                if (wasCrop) setCrop(null);
               }
             }}
           />
-          {crop && image && (
+          {tool === "crop" && crop && image && (
             <div
               className="annotator-crop"
               ref={cropRef}
@@ -821,14 +826,14 @@ export function AnnotatorModal({
           <button onClick={() => setCrop(null)} disabled={!!busy || drawing || !crop}>
             Cancel crop
           </button>
-          <button
+          {!quickCrop && <button
             className="is-primary"
             onClick={applyCrop}
             disabled={!!busy || drawing || !crop || crop.width < 1 || crop.height < 1}
           >
             <Check size={16} />
             Apply crop
-          </button>
+          </button>}
         </div>
       )}
       <div className="annotator-feedback" aria-live="polite">
@@ -840,7 +845,7 @@ export function AnnotatorModal({
           <p>{status}</p>
         ) : (
           <p>
-            {quickCrop ? "Select an area. Ctrl+C copies it; Ctrl+S saves a new image. Close leaves the original unchanged." : "Save creates a new image in history. The original stays available."}
+            {quickCrop ? "Crop, draw or add a label. Ctrl+C copies the selected area with your markup; Ctrl+S saves a new image." : "Save creates a new image in history. The original stays available."}
           </p>
         )}
       </div>

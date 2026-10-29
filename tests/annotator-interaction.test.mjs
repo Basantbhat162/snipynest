@@ -245,3 +245,16 @@ test("Quick crop closes with Escape without a discard prompt", async () => {
   assert.equal(editor.closed, 1);
   assert.equal(editor.find(node=>node.props?.role === "alertdialog"), undefined);
 });
+
+test("Quick crop exposes markup tools and keeps its pending crop when switching tools", async () => {
+  const editor = editorHarness(true); await editor.load();
+  const tool = label => editor.find(node => node.type === "button" && node.props.children?.[1]?.props?.children === label);
+  for (const label of ["Crop", "Pen", "Arrow", "Box", "Ellipse", "Highlight", "Redact", "Text", "Step", "Pan"])
+    assert.ok(tool(label), `Quick crop must offer ${label}`);
+  editor.key("ArrowRight", "w", true); editor.render();
+  const selection = editor.crop().props.style;
+  tool("Pen").props.onClick(); editor.render();
+  assert.equal(editor.crop(), undefined, "The crop overlay must not intercept drawing");
+  tool("Crop").props.onClick(); editor.render();
+  assert.deepEqual(editor.crop().props.style, selection, "Switching tools must keep the export selection");
+});

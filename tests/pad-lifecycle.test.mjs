@@ -58,3 +58,16 @@ test('Pad quick crop targets its displayed image and is disabled for PDFs',async
  assert.equal(crop().props.disabled,true);
  }finally{pad.cleanup();}
 });
+
+test('Pad thumbnail opens its displayed capture and keeps movement available without an icon',async()=>{
+ const pad=await fixture();try{
+ pad.subscriptions.forEach(done=>done());await pad.flush();pad.reads[0]([{id:'image',clip_type:'image'}]);await pad.flush();
+ pad.nodes().find(n=>n.props?.className==='pad-image').props.onClick();
+ assert.deepEqual(pad.calls.at(-1),{name:'open_from_pad',args:{quickCropId:'image'}});
+ assert.equal(pad.nodes().some(n=>n.props?.className==='pad-move'),false);
+ assert.ok(pad.nodes().find(n=>n.props?.className==='pad-move-edge').props.onPointerMove);
+ pad.publish();await pad.flush();pad.reads[1]([{id:'pdf',clip_type:'file'}]);await pad.flush();
+ pad.nodes().find(n=>n.props?.className==='pad-image').props.onClick();
+ assert.deepEqual(pad.calls.at(-1),{name:'open_clip_file',args:{id:'pdf'}});
+ }finally{pad.cleanup();}
+});

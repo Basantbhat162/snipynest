@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.2 — unreleased
+
+- Quick edit from Capture Pad now includes pen, arrows, shapes, highlight, text, steps and redaction. A pending crop survives tool switches and Ctrl+C/Ctrl+S includes the markup without Apply crop.
+- Browser clipboard denial opens a small focused delivery window for a one-time automatic PNG/PDF copy. It closes after success and retains Copy/Save after failure; stale or partial captures are never automatically delivered.
+- Companion has an explicit 400px popup width, compact result layout and visible version. Advanced options and help remain available without crowding the default capture view.
+- Clicking image previews opens the editor; PDF previews open independent staged copies in the default PDF app. Image/PDF drag buttons and the Pad move icon are removed; thumbnail dragging and movement from the Pad edge remain.
+- Text content is draggable, double-click selects its displayed text, and the text drag control remains available. Browser-key errors now distinguish missing connection, focus and tab readiness.
+
 ## 1.6.1 — unreleased
 
 - Fixed key recording permanently disabling single-key mode: recording now suspends and restores registrations while preserving the enabled setting, including cancel/close. Settings shows actual Windows registration status, and Save reconciles missing registrations.

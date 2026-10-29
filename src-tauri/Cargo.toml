@@ -1,6 +1,6 @@
 [package]
 name = "omnicopy"
-version = "1.6.1"
+version = "1.6.2"
 description = "Next-Generation Windows Clipboard Workspace & Screen Studio"
 authors = ["SnipyNest contributors"]
 edition = "2021"

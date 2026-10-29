@@ -13,6 +13,8 @@ let starting = false;
 let lastStatus = {phase:'idle',message:'Ready to capture.'};
 let deliveryCopied = false;
 let resultIdentity;
+let pendingDelivery;
+let captureRevision = 0;
 const diagnostics = [];
 function trace(event) {
   diagnostics.push({at:Date.now(),...event});
@@ -258,10 +260,28 @@ const controller = createCaptureController({
 async function beginCapture(tab, mode = 'full', slow = false, format = 'png', saveSettings = true) {
   if (starting || controller.getStatus().busy) return Promise.resolve({ success: false, error: 'A capture is already running.' });
   starting = true;
+  const revision = ++captureRevision;
+  pendingDelivery = null;
   requestTab = tab; captureMode = mode; outputFormat = format; settleMs = slow ? 1400 : mode === 'visible' ? 0 : 500; deliveryCopied=false;
   if (saveSettings) try { await chrome.storage?.local?.set({captureSettings:{mode,slow,format}}); } catch {}
   let result;
   try { result = await controller.capture(); } finally { starting = false; }
+  const completedId = resultIdentity, sourceTab = requestTab;
+  if (result?.success && result.copied === false && result.resultAvailable && !result.partial && resultIdentity) {
+    try {
+      // An offscreen document cannot take focus. Complete delivery in an extension
+      // window only while the user is still on the captured tab.
+      const popup = await chrome.runtime.sendMessage({target:'popup',action:'deliver-capture',resultId:completedId}).catch(()=>null);
+      if (!popup?.accepted && revision === captureRevision && !deliveryCopied) {
+        const [active] = await chrome.tabs.query({active:true,windowId:sourceTab.windowId});
+        const source = await chrome.windows.get(sourceTab.windowId);
+        if (revision === captureRevision && !deliveryCopied && source.focused && active?.id === sourceTab.id) {
+          pendingDelivery = {resultId:completedId,expires:Date.now()+30_000};
+          await chrome.windows.create({type:'popup',focused:true,width:440,height:400,url:chrome.runtime.getURL(`result.html?deliver=${encodeURIComponent(completedId)}`)});
+        }
+      }
+    } catch { trace({stage:'delivery-window-unavailable'}); }
+  }
   return result;
 }
 chrome.commands.onCommand.addListener((command, tab) => {
@@ -285,8 +305,16 @@ chrome.runtime.onMessage.addListener((request, sender, respond) => {
   if (request.action === 'diagnostics') { respond({version:chrome.runtime.getManifest?.().version,events:diagnostics});return; }
   if (request.action === 'copy-complete') {
     if (!request.resultId || request.resultId !== resultIdentity) {respond({success:false});return;}
-    deliveryCopied=true;lastStatus={...lastStatus,copied:true,message:'Copied to clipboard.'};
+    deliveryCopied=true;lastStatus={...lastStatus,copied:true,message:'Copied to clipboard.'};delete lastStatus.warning;
+    pendingDelivery=null;
+    chrome.action.setTitle({title:lastStatus.message}).catch(()=>{});
+    chrome.runtime.sendMessage({target:'popup',action:'capture-status',status:lastStatus}).catch(()=>{});
     chrome.action.setBadgeText({text:''}).catch(()=>{});respond({success:true});return;
+  }
+  if (request.action === 'claim-delivery') {
+    const allowed = !starting && !controller.getStatus().busy && pendingDelivery?.resultId === request.resultId && request.resultId === resultIdentity && pendingDelivery.expires > Date.now();
+    if (allowed) pendingDelivery=null;
+    respond({success:Boolean(allowed)});return;
   }
   if (request.action === 'cancel-capture') { controller.cancel(); if(requestTab)void inject(requestTab,()=>window.__omnicopyCapture?.cancelSelection?.()).catch(()=>{}); respond({ success: true }); return; }
   if (request.action === 'capture-full-page') { beginCapture(request.tab, ['visible','feed','region'].includes(request.mode) ? request.mode : 'full', request.slow === true, request.format === 'pdf' ? 'pdf' : 'png').then(respond); return true; }

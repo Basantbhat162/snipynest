@@ -541,6 +541,10 @@ export function App() {
                     onRestore={(id) => void restore([id])}
                     onPermanentDelete={setDeleteId}
                     onOpenAnnotator={setAnnotatingClip}
+                    onOpenPreview={clip => {
+                      if (clip.clip_type === "image") { setQuickCrop(false); setAnnotatingClip(clip); }
+                      else void run(async () => { await invoke("open_clip_file", {id:clip.id}); });
+                    }}
                     onNativeDrag={(id) =>
                       startDrag(selectedIds.has(id) ? [...selectedIds] : [id])
                     }

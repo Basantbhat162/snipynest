@@ -3,6 +3,7 @@ use base64::Engine;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::clipboard::win32::{set_clipboard_image, set_clipboard_text};
 use crate::storage::{Clip, ClipFilter, ClipType, StorageStats};
@@ -102,6 +103,35 @@ pub async fn get_clip_full_image(
             }
         }
         Ok(None)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn open_clip_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let clip = db
+            .get_clip(&id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Capture no longer exists")?;
+        if clip.is_deleted || clip.clip_type != ClipType::File {
+            return Err("Only an available PDF capture can be opened".into());
+        }
+        // Open an independent staged copy: PDF applications must never edit the original blob.
+        let state = app.state::<AppState>();
+        let paths = state
+            .stager
+            .prepare_drag_files(&db, &[id])
+            .map_err(|e| e.to_string())?;
+        app.opener()
+            .open_path(paths[0].to_string_lossy().as_ref(), None::<&str>)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

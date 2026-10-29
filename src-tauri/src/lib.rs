@@ -530,6 +530,7 @@ pub fn run() {
             commands::get_clip_by_id,
             commands::get_clip_full_image,
             commands::get_clip_file_path,
+            commands::open_clip_file,
             commands::toggle_clip_pin,
             commands::trash_clip,
             commands::restore_clip,
