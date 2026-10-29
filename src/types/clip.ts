@@ -37,6 +37,10 @@ export interface StorageStats {
 }
 
 export interface Preferences {
+  excludeTaskbar?: boolean;
+  singleKeyEnabled?: boolean;
+  singleKeyResume?: boolean;
+  singleKeyBindings?: {key:string; action:"snip"|"snapshot"|"history"|"browserVisible"|"browserFull"|"browserPdf"}[];
   capturePaused: boolean;
   trashRetentionDays: number;
   startAtLogin: boolean;

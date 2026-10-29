@@ -117,7 +117,7 @@ kbd { font: 11px "Segoe UI", sans-serif; color: var(--muted); white-space: nowra
 .clip-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; user-select: text; max-height: 84px; margin: 2px 4px 10px; }
 .clip-text.code { font-family: Consolas, monospace; font-size: 12px; color: var(--code); }
 .clip-text.link { color: var(--accent); }
-.clip-image { height: 164px; display: flex; align-items: center; justify-content: center; position: relative; background: var(--image-stage); border-radius: 5px; overflow: hidden; touch-action: none; cursor: grab; }
+.clip-image { width: 100%; padding: 0; border: 0; color: inherit; height: 164px; display: flex; align-items: center; justify-content: center; position: relative; background: var(--image-stage); border-radius: 5px; overflow: hidden; touch-action: none; cursor: grab; }
 .clip-image img { height: 100%; width: 100%; object-fit: contain; user-select: none; pointer-events: none; }
 .image-dimensions { position: absolute; right: 6px; bottom: 6px; padding: 3px 5px; border-radius: 4px; background: var(--panel); color: var(--muted); font-size: 11px; border: 1px solid var(--border); }
 .clip-footer { display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-top: 8px; min-width: 0; }
@@ -201,3 +201,9 @@ kbd { font: 11px "Segoe UI", sans-serif; color: var(--muted); white-space: nowra
 }
 
 [hidden] { display: none !important; }
+:root { accent-color: var(--accent); }
+.key-binding { display: grid; gap: 6px; margin: 12px 0; min-width: 0; }
+.key-binding > label { font-weight: 600; font-size: 12px; }
+.key-binding-controls { display: flex; gap: 8px; min-width: 0; }
+.key-binding-controls select { flex: 1; min-width: 0; width: 0; }
+.key-binding-controls button { flex: 0 0 76px; padding: 6px 8px; }

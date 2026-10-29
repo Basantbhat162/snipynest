@@ -53,7 +53,15 @@ The soft-delete quarantine area retaining removed Clips for a configurable recov
 _Avoid_: Recycle bin, deleted items, archive
 
 **Capture Pad**:
-The movable utility surface showing the latest image and unread count. Click opens Sidebar; drag the thumbnail to share; move the dedicated handle to reposition. It follows the cursor monitor sampled when an image reaches the clipboard, preserving manual placement on that monitor. It can dock beside the taskbar but is not an embedded taskbar widget.
+The movable utility surface showing the latest capture and unread count. Click its image for Quick edit or its PDF for the default PDF app; the history control opens Sidebar. Drag the thumbnail to share, or the top edge to reposition. It follows the cursor monitor sampled when a capture reaches the clipboard, preserving manual placement on that monitor. It can dock beside the taskbar but is not an embedded taskbar widget.
+
+In 1.6.0 it shows the latest image or PDF capture. Images have a Quick crop button; PDFs drag as files.
+
+**Quick crop**:
+The Capture Pad entry into a transient Annotator session, labelled Quick edit. It starts on Crop and includes all markup tools. Copy exports the pending selection with its annotations directly, Save creates a new image Clip, and Close discards only this transient session without affecting the original or regular-editor Draft.
+
+**PDF capture**:
+A Companion capture encoded as bounded A4 image pages, stored as a file Clip through an explicit custom clipboard representation. The same clipboard item includes a standard PNG for image paste. It is not a selectable-text webpage printout.
 
 **Draft**:
 One bounded local recovery checkpoint for an unfinished Annotator session, distinct from a saved Clip. It expires after seven days and never silently replaces another image's unfinished edit.
@@ -62,5 +70,11 @@ One bounded local recovery checkpoint for an unfinished Annotator session, disti
 The Companion's completed PNG retained for retrying clipboard copy or saving a file. The background copy expires after five minutes or when a replacement capture succeeds. A focused result tab retains its loaded PNG independently until closed, allowing clipboard retry and file saving.
 
 **Quick monitor capture**:
-A single-action image of the entire monitor under the pointer, including its taskbar, ready to paste. Distinct from a region Snip or a browser Page Snip.
+A single-action image of the monitor under the pointer, ready to paste. Taskbar exclusion is enabled by default and can be turned off. Distinct from a region Snip or a browser Page Snip.
 _Avoid_: Quick snip, full page capture
+
+**Single-key mode**:
+An opt-in Windows hotkey reservation for selected spare keys. Each assigned bare key triggers one SnipyNest action while the process runs; releasing the mode restores the keys. It does not remap keyboard firmware or record typed input.
+
+**Desktop browser control**:
+The optional Companion Native Messaging connection to a per-user local helper. It routes capture actions to the focused, ready browser session using bounded Windows control messages; captured content continues through the clipboard bridge.

@@ -3,6 +3,7 @@ use base64::Engine;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::clipboard::win32::{set_clipboard_image, set_clipboard_text};
 use crate::storage::{Clip, ClipFilter, ClipType, StorageStats};
@@ -108,13 +109,46 @@ pub async fn get_clip_full_image(
 }
 
 #[tauri::command]
+pub async fn open_clip_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let clip = db
+            .get_clip(&id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Capture no longer exists")?;
+        if clip.is_deleted || clip.clip_type != ClipType::File {
+            return Err("Only an available PDF capture can be opened".into());
+        }
+        // Open an independent staged copy: PDF applications must never edit the original blob.
+        let state = app.state::<AppState>();
+        let paths = state
+            .stager
+            .prepare_drag_files(&db, &[id])
+            .map_err(|e| e.to_string())?;
+        app.opener()
+            .open_path(paths[0].to_string_lossy().as_ref(), None::<&str>)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub fn get_clip_file_path(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Option<String>, String> {
     if let Some(clip) = state.db.get_clip(&id).map_err(|e| e.to_string())? {
-        if clip.clip_type == ClipType::Image {
-            let path = state.db.get_blob_store().get_blob_path(&clip.hash);
+        if matches!(clip.clip_type, ClipType::Image | ClipType::File) {
+            let path = if clip.clip_type == ClipType::File {
+                state.db.get_blob_store().get_pdf_path(&clip.hash)
+            } else {
+                state.db.get_blob_store().get_blob_path(&clip.hash)
+            };
             if path.exists() {
                 return Ok(Some(path.to_string_lossy().to_string()));
             }
@@ -159,9 +193,18 @@ pub async fn copy_clip_to_clipboard(
     id: String,
 ) -> Result<bool, String> {
     let db = state.db.clone();
+    let stager = state.stager.clone();
     tauri::async_runtime::spawn_blocking(move || {
         if let Some(clip) = db.get_clip(&id).map_err(|e| e.to_string())? {
             match clip.clip_type {
+                ClipType::File => {
+                    let paths = stager
+                        .prepare_drag_files(&db, &[clip.id])
+                        .map_err(|e| e.to_string())?;
+                    return Ok(crate::clipboard::set_clipboard_file(
+                        paths.first().ok_or("The PDF is missing")?,
+                    ));
+                }
                 ClipType::Image => {
                     let path = db.get_blob_store().get_blob_path(&clip.hash);
                     if path.exists() {
@@ -452,6 +495,23 @@ pub async fn update_preferences(
         .map_err(|e| e.to_string())?
 }
 
+fn restore_single_keys(
+    app: &AppHandle,
+    state: &AppState,
+    current: &mut crate::preferences::Preferences,
+) {
+    if state
+        .single_keys
+        .apply(current.single_key_enabled, &current.single_key_bindings)
+        .is_err()
+    {
+        // A failed rollback must not leave newly assigned keys silently reserved.
+        let _ = state.single_keys.apply(false, &[]);
+        current.single_key_enabled = false;
+        let _ = state.db.save_preferences(current);
+        let _ = app.emit("preferences-changed", &*current);
+    }
+}
 fn update_preferences_inner(
     app: AppHandle,
     preferences: crate::preferences::Preferences,
@@ -459,6 +519,7 @@ fn update_preferences_inner(
     let state = app.state::<AppState>();
     preferences.validate()?;
     let mut current = state.preferences.write();
+    state.single_keys.cancel_recording();
     let bindings_changed = current.snip_shortcut != preferences.snip_shortcut
         || current.history_shortcut != preferences.history_shortcut
         || current.quick_capture_shortcut != preferences.quick_capture_shortcut;
@@ -471,8 +532,36 @@ fn update_preferences_inner(
             )?;
         }
     }
+    let keys_changed = current.single_key_enabled != preferences.single_key_enabled
+        || current.single_key_bindings != preferences.single_key_bindings
+        || state.single_keys.is_armed() != preferences.single_key_enabled;
+    if keys_changed {
+        if let Err(error) = state.single_keys.apply(
+            preferences.single_key_enabled,
+            &preferences.single_key_bindings,
+        ) {
+            if !state.single_keys.is_armed() && current.single_key_enabled {
+                current.single_key_enabled = false;
+                let _ = state.db.save_preferences(&current);
+                let _ = app.emit("preferences-changed", &*current);
+            }
+            if bindings_changed {
+                if let Some(listener) = state._listener.read().as_ref() {
+                    let _ = listener.update_shortcuts(
+                        current.snip_shortcut.clone(),
+                        current.history_shortcut.clone(),
+                        current.quick_capture_shortcut.clone(),
+                    );
+                }
+            }
+            return Err(error);
+        }
+    }
     if current.start_at_login != preferences.start_at_login {
         if let Err(error) = crate::preferences::set_start_at_login(preferences.start_at_login) {
+            if keys_changed {
+                restore_single_keys(&app, &state, &mut current);
+            }
             if bindings_changed {
                 if let Some(listener) = state._listener.read().as_ref() {
                     let _ = listener.update_shortcuts(
@@ -486,6 +575,9 @@ fn update_preferences_inner(
         }
     }
     if let Err(error) = state.db.save_preferences(&preferences) {
+        if keys_changed {
+            restore_single_keys(&app, &state, &mut current);
+        }
         if bindings_changed {
             if let Some(listener) = state._listener.read().as_ref() {
                 let _ = listener.update_shortcuts(

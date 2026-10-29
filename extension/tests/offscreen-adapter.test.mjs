@@ -4,14 +4,15 @@ import assert from 'node:assert/strict';
 let listener;
 let failClipboard = false;
 let clipboardWrites = 0;
+let lastClipboardItem;
 const drawCalls = [];
 const bitmaps = [];
 globalThis.chrome = { runtime: { id: 'companion', onMessage: { addListener(callback) { listener = callback; } } } };
 globalThis.document = {
   createElement: () => ({
     width: 0, height: 0,
-    getContext: () => ({ drawImage: (...args) => drawCalls.push(args.slice(1)) }),
-    toBlob: callback => callback(new Blob(['PNG encoded data'], { type: 'image/png' })),
+    getContext: () => ({ fillRect() {}, drawImage: (...args) => drawCalls.push(args.slice(1)) }),
+    toBlob: (callback,type='image/png') => callback(new Blob([type === 'image/jpeg' ? new Uint8Array([255,216,255,217]) : 'PNG encoded data'], { type })),
   }),
 };
 globalThis.fetch = async () => ({ blob: async () => new Blob(['viewport PNG']) });
@@ -24,6 +25,7 @@ globalThis.ClipboardItem = class { constructor(data) { this.data = data; } };
 Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { write: async items => {
   if (failClipboard) throw new Error('Clipboard permission denied');
   assert.equal(items[0].data['image/png'].type, 'image/png');
+  lastClipboardItem=items[0];
   clipboardWrites += 1;
 } } }, configurable: true });
 await import('../offscreen.js');
@@ -96,4 +98,16 @@ test('clipboard payload is bound to the completed result and excludes partial ou
   await request('append',{y:0,dataUrl:'data:image/png;base64,AA=='});
   const partial=await request('finish',{partial:true});
   assert.equal((await request('clipboard-payload',{resultId:partial.resultId})).success,false);
+});
+
+test('PDF completion retains PNG and PDF and copies them in one clipboard item',async()=>{
+  failClipboard=false;
+  await request('start',{...metrics,totalHeight:800,outputFormat:'pdf'});
+  await request('append',{y:0,dataUrl:'data:image/png;base64,AA=='});
+  const result=await request('finish');assert.equal(result.success,true,result.error);assert.equal(result.copied,true);
+  const pdf=lastClipboardItem.data['web application/x-snipynest-capture-pdf'];
+  assert.equal(pdf.type,'application/x-snipynest-capture-pdf');assert.match(await pdf.text(),/^%PDF-1.4/);
+  const preview=await request('result-preview');assert.ok(preview.pdfUrl);
+  const payload=await request('clipboard-payload',{resultId:result.resultId});
+  assert.equal(atob(payload.base64),'PNG encoded data');assert.match(atob(payload.pdfBase64),/^%PDF-1.4/);
 });

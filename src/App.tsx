@@ -66,6 +66,17 @@ export function App() {
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [isPinned, setIsPinned] = useState(false);
   const [annotatingClip, setAnnotatingClip] = useState<Clip | null>(null);
+  const [quickCrop, setQuickCrop] = useState(false);
+  const editorBusy = useRef(false);
+  editorBusy.current = !!annotatingClip;
+  useEffect(() => {
+    const subscription = listen<Clip>("quick-crop-request", event => {
+      if (editorBusy.current) { setNotice({message:"Close the current editor before opening Quick crop.",error:true}); return; }
+      editorBusy.current = true;
+      setQuickCrop(true); setAnnotatingClip(event.payload);
+    });
+    return () => { void subscription.then(unlisten=>unlisten()); };
+  }, []);
   const [showStorage, setShowStorage] = useState(false);
   const [batch, setBatch] = useState<{token:string;count:number}|null>(null);
   const [includePinned, setIncludePinned] = useState(false);
@@ -530,6 +541,10 @@ export function App() {
                     onRestore={(id) => void restore([id])}
                     onPermanentDelete={setDeleteId}
                     onOpenAnnotator={setAnnotatingClip}
+                    onOpenPreview={clip => {
+                      if (clip.clip_type === "image") { setQuickCrop(false); setAnnotatingClip(clip); }
+                      else void run(async () => { await invoke("open_clip_file", {id:clip.id}); });
+                    }}
                     onNativeDrag={(id) =>
                       startDrag(selectedIds.has(id) ? [...selectedIds] : [id])
                     }
@@ -581,7 +596,8 @@ export function App() {
       {annotatingClip && (
         <AnnotatorModal
           clip={annotatingClip}
-          onClose={() => { setAnnotatingClip(null); void readDraft().then(d=>setRecoverableClip(d?.clip || null)).catch(()=>{}); }}
+          quickCrop={quickCrop}
+          onClose={() => { setAnnotatingClip(null); setQuickCrop(false); void readDraft().then(d=>setRecoverableClip(d?.clip || null)).catch(()=>{}); }}
           onSave={async (dataBase64, originalId) => {
             await invoke("save_annotated_image", { dataBase64, originalId });
             setNotice({ message: "Edited image saved to history" });

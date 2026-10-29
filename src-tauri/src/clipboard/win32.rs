@@ -27,6 +27,7 @@ pub const CF_HDROP: u32 = 15;
 pub const CF_DIBV5: u32 = 17;
 
 pub struct ClipboardItem {
+    pub pdf: Option<Vec<u8>>,
     pub text: Option<String>,
     pub image_png: Option<Vec<u8>>,
     pub source_app: Option<String>,
@@ -160,6 +161,25 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
             }
         }
 
+        // Explicit PDF capture carries a normal PNG for paste plus a Chromium custom format.
+        if let Some(pdf) = read_registered_format("Web Custom Format Map", 64 * 1024)
+            .and_then(|metadata| super::pdf::format_name(&metadata))
+            .and_then(|name| read_registered_format(&name, super::pdf::MAX_PDF_BYTES))
+            .filter(|bytes| super::pdf::valid_pdf(bytes))
+        {
+            let remaining = 64 * 1024 * 1024 - pdf.len();
+            let image_png = read_registered_format("PNG", remaining)
+                .or_else(|| read_registered_format("image/png", remaining));
+            CloseClipboard();
+            return Some(ClipboardItem {
+                pdf: Some(pdf),
+                image_png,
+                text: None,
+                source_app,
+                source_title,
+            });
+        }
+
         // Priority 1: Check for registered PNG ("image/png" for Chrome/Brave/Edge and "PNG" for Office/Photoshop)
         let png_fmt_names = ["image/png\0", "PNG\0"];
         for name in &png_fmt_names {
@@ -185,6 +205,7 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
                             let clean_bytes = slice.to_vec();
 
                             item = Some(ClipboardItem {
+                                pdf: None,
                                 text: None,
                                 image_png: Some(clean_bytes),
                                 source_app: source_app.clone(),
@@ -267,6 +288,7 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
                                     .is_ok()
                                 {
                                     item = Some(ClipboardItem {
+                                        pdf: None,
                                         text: None,
                                         image_png: Some(png_bytes),
                                         source_app: source_app.clone(),
@@ -327,6 +349,7 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
                                 .is_ok()
                             {
                                 item = Some(ClipboardItem {
+                                    pdf: None,
                                     text: None,
                                     image_png: Some(png_bytes),
                                     source_app: source_app.clone(),
@@ -362,6 +385,7 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
 
                     if !text.trim().is_empty() {
                         item = Some(ClipboardItem {
+                            pdf: None,
                             text: Some(text),
                             image_png: None,
                             source_app,
@@ -376,6 +400,30 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
     }
 
     item
+}
+
+// Caller already holds the clipboard; all allocation sizes are checked before copying.
+unsafe fn read_registered_format(name: &str, limit: usize) -> Option<Vec<u8>> {
+    let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+    let format = RegisterClipboardFormatW(name.as_ptr());
+    if format == 0 || IsClipboardFormatAvailable(format) == 0 {
+        return None;
+    }
+    let handle = GetClipboardData(format) as HGLOBAL;
+    if handle.is_null() {
+        return None;
+    }
+    let size = GlobalSize(handle);
+    if size == 0 || size > limit {
+        return None;
+    }
+    let ptr = GlobalLock(handle);
+    if ptr.is_null() {
+        return None;
+    }
+    let bytes = std::slice::from_raw_parts(ptr as *const u8, size).to_vec();
+    GlobalUnlock(handle);
+    Some(bytes)
 }
 
 // A clipboard writer must own its HWND. Using the foreground application's
@@ -425,6 +473,47 @@ unsafe fn mark_own_clipboard() {
         if SetClipboardData(format, handle as HANDLE).is_null() {
             GlobalFree(handle);
         }
+    }
+}
+
+/// Publish an independently staged file for native file paste.
+pub fn set_clipboard_file(path: &std::path::Path) -> bool {
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .chain([0, 0])
+        .collect();
+    let mut bytes = vec![0u8; 20];
+    bytes[0..4].copy_from_slice(&20u32.to_le_bytes());
+    bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
+    for unit in wide {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    let owner = ClipboardOwner::new();
+    if owner.0.is_null() || !open_clipboard_with_retry(owner.0, 5) {
+        return false;
+    }
+    unsafe {
+        let handle = GlobalAlloc(GMEM_MOVEABLE, bytes.len());
+        let mut success = false;
+        if !handle.is_null() {
+            let ptr = GlobalLock(handle);
+            if !ptr.is_null() {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
+                GlobalUnlock(handle);
+                EmptyClipboard();
+                success = !SetClipboardData(CF_HDROP, handle as HANDLE).is_null();
+            }
+            if !success {
+                GlobalFree(handle);
+            }
+        }
+        if success {
+            mark_own_clipboard();
+        }
+        CloseClipboard();
+        success
     }
 }
 

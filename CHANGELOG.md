@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.6.2 — unreleased
+
+- Quick edit from Capture Pad now includes pen, arrows, shapes, highlight, text, steps and redaction. A pending crop survives tool switches and Ctrl+C/Ctrl+S includes the markup without Apply crop.
+- Browser clipboard denial opens a small focused delivery window for a one-time automatic PNG/PDF copy. It closes after success and retains Copy/Save after failure; stale or partial captures are never automatically delivered.
+- Companion has an explicit 400px popup width, compact result layout and visible version. Advanced options and help remain available without crowding the default capture view.
+- Clicking image previews opens the editor; PDF previews open independent staged copies in the default PDF app. Image/PDF drag buttons and the Pad move icon are removed; thumbnail dragging and movement from the Pad edge remain.
+- Text content is draggable, double-click selects its displayed text, and the text drag control remains available. Browser-key errors now distinguish missing connection, focus and tab readiness.
+
+## 1.6.1 — unreleased
+
+- Fixed key recording permanently disabling single-key mode: recording now suspends and restores registrations while preserving the enabled setting, including cancel/close. Settings shows actual Windows registration status, and Save reconciles missing registrations.
+
+## 1.6.0 — unreleased
+- Added Capture Pad Quick crop: Ctrl+C copies a pending selection and Ctrl+S saves it directly, preserving the original and regular-editor drafts.
+- Split browser shortcuts into visible PNG (Alt+Shift+S), full scrolling PNG (Alt+Shift+L) and full scrolling PDF plus clipboard PNG (Alt+Shift+P).
+- Added local paginated PDF output, popup PDF download, bounded clipboard delivery to desktop, PDF storage and native file dragging from Capture Pad/history.
+- Kept the existing Ctrl+Alt+S monitor snapshot shortcut and separate Ctrl+Shift+S Windows region snipping.
+- Added default-on taskbar exclusion for monitor snapshots, including revealed auto-hide taskbars.
+- Added opt-in spare-key assignments, recording, conflict recovery, immediate release and optional startup resume for standard Windows keyboards.
+- Added an optional per-user browser control helper for spare-key visible PNG, full PNG and full PDF captures. Permissions are requested separately and can be removed from Companion Settings.
+- Rebuilt Companion around three direct capture actions, folded advanced options, actual shortcut badges and a separate settings page. Added a stable public extension ID for local host registration.
+
 ## 1.5.1 — October 16, 2026
 
 - Added persistent Light and Dark themes to desktop history, settings, Capture Pad, editor and browser Companion. Theme changes apply immediately; desktop and extension choices are separate.

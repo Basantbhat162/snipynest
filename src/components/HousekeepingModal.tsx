@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { HardDrive, Trash2 } from "lucide-react";
 import type { StorageStats, Preferences } from "../types/clip";
 import { formatBytes } from "../lib/format";
 import { Dialog } from "./Dialog";
 import { ThemeChoice } from "./ThemeChoice";
+import { KeyboardSettings } from "./KeyboardSettings";
 export function HousekeepingModal({
   stats,
   preferences,
@@ -18,13 +19,16 @@ export function HousekeepingModal({
   onClose: () => void;
   onEmptyTrash: () => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<Preferences | null>(preferences);
+  const [draft, updateDraft] = useState<Preferences | null>(preferences);
+  const dirty=useRef(false);
+  const setDraft=(value:Preferences)=>{dirty.current=true;updateDraft(value);};
   useEffect(() => {
-    if (preferences) setDraft(preferences);
+    if (preferences) updateDraft(current=>dirty.current && current ? {...current,singleKeyEnabled:preferences.singleKeyEnabled===false?false:current.singleKeyEnabled} : preferences);
   }, [preferences]);
   const [saved, setSaved] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [keyboardBusy,setKeyboardBusy]=useState(false);
   const [error, setError] = useState("");
   async function empty() {
     setBusy(true);
@@ -52,7 +56,7 @@ export function HousekeepingModal({
               setError("");
               setSaved(false);
               void onPreferencesChange(draft)
-                .then(() => setSaved(true))
+                .then(() => {dirty.current=false;setSaved(true);})
                 .catch((e) => setError(String(e)))
                 .finally(() => setBusy(false));
             }}
@@ -129,13 +133,15 @@ export function HousekeepingModal({
               <legend>Global shortcuts</legend>
               <p className="settings-description">These shortcuts work while SnipyNest is running in the tray.</p>
             <label className="preference-toggle"><span>Screen snip shortcut</span><input aria-label="Screen snip shortcut" value={draft.snipShortcut ?? "Ctrl+Shift+S"} onChange={e=>setDraft({...draft,snipShortcut:e.target.value})}/></label>
-            <label className="preference-toggle"><span>Quick monitor capture<small>Copies the whole screen under your pointer, including its taskbar.</small></span><input aria-label="Quick monitor capture shortcut" value={draft.quickCaptureShortcut ?? "Ctrl+Alt+S"} onChange={e=>setDraft({...draft,quickCaptureShortcut:e.target.value})}/></label>
+            <label className="preference-toggle"><span>Quick monitor capture<small>Copies the monitor under your pointer.</small></span><input aria-label="Quick monitor capture shortcut" value={draft.quickCaptureShortcut ?? "Ctrl+Alt+S"} onChange={e=>setDraft({...draft,quickCaptureShortcut:e.target.value})}/></label>
+            <label className="preference-toggle"><span>Exclude taskbar<small>Quick snapshots use the monitor’s usable work area.</small></span><input type="checkbox" checked={draft.excludeTaskbar??true} onChange={e=>setDraft({...draft,excludeTaskbar:e.target.checked})}/></label>
             <label className="preference-toggle"><span>History shortcut</span><input aria-label="History shortcut" value={draft.historyShortcut ?? "Ctrl+Shift+V"} onChange={e=>setDraft({...draft,historyShortcut:e.target.value})}/></label>
             <button type="button" className="text-button" onClick={()=>{setDraft({...draft,snipShortcut:"Ctrl+Shift+S",historyShortcut:"Ctrl+Shift+V",quickCaptureShortcut:"Ctrl+Alt+S"});setSaved(false);}}>Reset shortcuts</button>
             </fieldset>
+            <KeyboardSettings draft={draft} onChange={value=>{setDraft(value);setSaved(false);}} busy={busy} onBusyChange={setKeyboardBusy}/>
             <div className="preferences-save">
               <span role="status">{saved ? "Settings saved" : ""}</span>
-              <button className="button primary" type="submit" disabled={busy}>
+              <button className="button primary" type="submit" disabled={busy||keyboardBusy}>
                 {busy ? "Saving…" : "Save settings"}
               </button>
             </div>

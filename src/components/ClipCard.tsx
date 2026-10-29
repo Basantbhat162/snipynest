@@ -14,6 +14,7 @@ import type { Clip } from "../types/clip";
 import { formatBytes, clipDate } from "../lib/format";
 import { useNativeDrag } from "../lib/useNativeDrag";
 import { useClipPreview } from "../lib/useClipPreview";
+import { useRef } from "react";
 interface Props {
   clip: Clip;
   isSelected: boolean;
@@ -27,6 +28,7 @@ interface Props {
   onRestore: (id: string) => void;
   onPermanentDelete: (id: string) => void;
   onOpenAnnotator: (clip: Clip) => void;
+  onOpenPreview: (clip: Clip) => void;
   onNativeDrag: (id: string) => void;
   isTrashView?: boolean;
 }
@@ -43,12 +45,14 @@ export function ClipCard({
   onRestore,
   onPermanentDelete,
   onOpenAnnotator,
+  onOpenPreview,
   onNativeDrag,
   isTrashView = false,
 }: Props) {
   const preview = useClipPreview(clip);
+  const dragged = useRef(false);
   const drag = useNativeDrag(() => {
-    if (!busy && !isTrashView) onNativeDrag(clip.id);
+    if (!busy && !isTrashView) { dragged.current = true; onNativeDrag(clip.id); }
   });
   const Icon =
     clip.clip_type === "image"
@@ -102,23 +106,30 @@ export function ClipCard({
           </button>
         )}
       </div>
-      {clip.clip_type === "image" ? (
-        <div className="clip-image" {...(!isTrashView ? drag : {})}>
+      {clip.clip_type === "image" || clip.clip_type === "file" ? (
+        <button type="button" className="clip-image" {...(!isTrashView ? drag : {})}
+          onPointerDown={event => { dragged.current=false; if(!busy && !isTrashView) drag.onPointerDown(event); }}
+          disabled={busy || isTrashView} aria-label={clip.clip_type === "file" ? "Open PDF capture" : "Open captured image"}
+          title={clip.clip_type === "file" ? "Open PDF · drag to share" : "Open image · drag to share"}
+          onClick={() => { if (dragged.current) { dragged.current=false; return; } if (!busy && !isTrashView) onOpenPreview(clip); }}>
           {preview ? (
             <img
               src={preview}
-              alt={clip.source_title || "Clipboard image"}
+              alt={clip.source_title || (clip.clip_type === "file" ? "PDF capture preview" : "Clipboard image")}
               draggable={false}
             />
           ) : (
-            <span className="muted">Image preview unavailable</span>
+            <span className="muted">{clip.clip_type === "file" ? "PDF capture · drag to share" : "Image preview unavailable"}</span>
           )}
+          {clip.clip_type === "file" && <span className="image-dimensions">PDF</span>}
           {clip.dimensions && (
             <span className="image-dimensions">{clip.dimensions}</span>
           )}
-        </div>
+        </button>
       ) : (
         <p
+          {...(!isTrashView ? drag : {})}
+          onDoubleClick={event => { const selection = window.getSelection(); const range = document.createRange(); range.selectNodeContents(event.currentTarget); selection?.removeAllRanges(); selection?.addRange(range); }}
           className={
             "clip-text " +
             (clip.clip_type === "code"
@@ -134,7 +145,7 @@ export function ClipCard({
       )}
       <div className="clip-footer">
         <span className="clip-size">
-          {clip.clip_type === "image"
+          {clip.clip_type === "image" || clip.clip_type === "file"
             ? formatBytes(clip.byte_size)
             : clip.char_count.toLocaleString() + " characters"}
         </span>
@@ -160,7 +171,7 @@ export function ClipCard({
             </>
           ) : (
             <>
-              <button
+              {clip.clip_type !== "image" && clip.clip_type !== "file" && <button
                 className="icon-button drag-handle"
                 {...drag}
                 aria-label="Drag clip to another app"
@@ -168,7 +179,7 @@ export function ClipCard({
                 disabled={busy}
               >
                 <GripVertical size={16} />
-              </button>
+              </button>}
               {clip.clip_type === "image" && (
                 <button
                   className="icon-button"

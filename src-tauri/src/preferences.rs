@@ -9,6 +9,10 @@ pub struct Preferences {
     pub snip_shortcut: String,
     pub history_shortcut: String,
     pub quick_capture_shortcut: String,
+    pub exclude_taskbar: bool,
+    pub single_key_enabled: bool,
+    pub single_key_resume: bool,
+    pub single_key_bindings: Vec<crate::keyboard::Binding>,
     pub pad_mode: String,
     pub pad_privacy: bool,
     pub hide_during_drag: bool,
@@ -26,6 +30,10 @@ impl Default for Preferences {
             snip_shortcut: "Ctrl+Shift+S".into(),
             history_shortcut: "Ctrl+Shift+V".into(),
             quick_capture_shortcut: "Ctrl+Alt+S".into(),
+            exclude_taskbar: true,
+            single_key_enabled: false,
+            single_key_resume: false,
+            single_key_bindings: Vec::new(),
             pad_mode: "arrival".into(),
             pad_privacy: false,
             hide_during_drag: false,
@@ -38,6 +46,10 @@ impl Default for Preferences {
 }
 impl Preferences {
     pub fn validate(&self) -> Result<(), String> {
+        crate::keyboard::validate(&self.single_key_bindings)?;
+        if self.single_key_enabled && self.single_key_bindings.is_empty() {
+            return Err("Assign a key before enabling single-key mode".into());
+        }
         if self.sound_volume > 100 {
             return Err("Sound volume must be between 0 and 100".into());
         }
@@ -139,6 +151,9 @@ mod tests {
     fn old_preferences_receive_quick_capture_default() {
         let preferences: Preferences = serde_json::from_str("{}").unwrap();
         assert_eq!(preferences.quick_capture_shortcut, "Ctrl+Alt+S");
+        assert!(preferences.exclude_taskbar);
+        assert!(!preferences.single_key_enabled && !preferences.single_key_resume);
+        assert!(preferences.single_key_bindings.is_empty());
         assert!(preferences.validate().is_ok());
     }
     #[test]
