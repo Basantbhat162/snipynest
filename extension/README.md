@@ -1,4 +1,4 @@
-# SnipyNest Companion 1.6.2 development build
+# SnipyNest Companion 1.6.3 development build
 
 Capture supported webpages as PNG or PDF, copy, or save the completed file. SnipyNest desktop must be running with monitoring enabled to collect the clipboard capture. Copied does not mean desktop storage acknowledged it. Optional Native Messaging carries desktop-key control messages; image and PDF bytes still use the bounded clipboard bridge.
 
@@ -21,7 +21,7 @@ Enable file URL access separately for local HTML. Browser settings, extension st
 - Feed: starts at the top, capped at the initial document height or five viewports. This does not capture an infinite timeline completely.
 - Scrolling panel: click inside a panel with its own scrollbar. Its entire viewport must be visible in the browser. Escape cancels selection, which also times out after 30 seconds. Cross-origin embedded scrollers are unsupported.
 
-**Alt+Shift+S** takes a quick visible-area PNG at the current scroll position and copies it automatically. **Alt+Shift+L** captures a full scrolling page as PNG. **Alt+Shift+P** captures a full scrolling page as PDF and also copies its PNG. These shortcuts choose their own area and output regardless of saved popup mode. The old Alt+Shift+S command identity is retained for existing installations; its behavior is now visible capture. Existing custom assignments remain in place; new shortcuts may be unassigned if another extension uses them. The popup shows the actual assignments and links to shortcut settings. Desktop Ctrl+Shift+S starts Windows snipping; Ctrl+Alt+S captures the monitor under the pointer.
+**Alt+Shift+S** takes a quick visible-area PNG at the current scroll position and copies it automatically. **Alt+Shift+L** captures a full scrolling page as PNG. **Alt+Shift+P** captures a full scrolling page as PDF and also copies its PNG. These shortcuts choose their own area and output regardless of saved popup mode. The old Alt+Shift+S command identity is retained for existing installations; its behavior is now visible capture. Existing custom assignments remain in place; new shortcuts may be unassigned if another extension uses them. The popup shows the actual assignments and links to shortcut settings. Desktop Ctrl+Shift+S opens SnipyNest area capture; Ctrl+Alt+S captures the monitor under the pointer.
 
 Keep the captured tab selected, the browser restored, and size/zoom unchanged. The popup may close while capture continues. Focus and same-document URL changes no longer automatically fail capture; changing tabs or replacing the document does. Cancel restores scroll and temporary styles. Dynamic content can still cause seams; use Visible area or Windows snipping when coverage is unreliable.
 

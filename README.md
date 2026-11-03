@@ -2,7 +2,7 @@
 
 A Windows clipboard workspace with searchable history, screenshot editing, a small Capture Pad, and a browser companion for webpage screenshots.
 
-**Current source: 1.6.2 development build.** Quick edit includes drawing and text tools; completed browser captures can use a focused delivery window when background clipboard access is denied. The features below require the updated desktop and Companion. The public downloads below remain 1.5.1.
+**Current source: 1.6.3 development build.** Screen snip opens direct area selection with markup; image editing supports keyboard zoom and lossless PDF export. The features below require the updated desktop and Companion. The public downloads below remain 1.5.1.
 
 ## Download for Windows
 
@@ -70,9 +70,11 @@ Desktop shortcuts can be changed in Settings. Click the Capture Pad image to ope
 
 Select clips using their checkboxes. Open **Select** for **Select this page** and **Trash all matching…**. Bulk Trash requires confirmation and supports Undo. All matching excludes pinned clips unless you include them. A successful drop clears the transferred selection; cancelling keeps it selected. Images drag as files; text drags as text. For a mixed selection, use Export. Editing saves a new image and preserves the original.
 
-Crop opens with a full-image guide. Drag any edge or corner, or choose **Draw area** to draw a new selection. Focus a handle and use arrow keys for one-pixel adjustments (Shift for ten pixels), then choose **Apply crop**. **Open maximized window** gives the editor the full working area of its current monitor. Originals stay unchanged.
+**Screen snip** (Ctrl+Shift+S or your assigned spare key) freezes the monitor under the pointer. Drag to select an area, then use the markup toolbar. **Ctrl+C** copies and closes; **Ctrl+S** saves an image to history; **Ctrl+P** saves a PDF. No image is copied or saved just by selecting. Escape, Close or switching to another app cancels. Selection spans one monitor at a time.
 
-For a faster crop, use the small **Quick crop** button on Capture Pad. Quick edit starts on Crop and also includes Pen, Arrow, Box, Ellipse, Highlight, Redact, Text and Step tools. Resize the guide, add markup, then press **Ctrl+C** to copy the selected area with your annotations. Switching tools keeps the crop. **Ctrl+S** saves a new image in history. Neither needs Apply crop first. Escape or Close leaves the original unchanged and closes without a discard prompt. Quick edit leaves unfinished regular-editor drafts alone.
+Crop opens with a full-image guide. Drag any edge or corner, or choose **Draw area** to draw a new selection. Focus a handle and use arrow keys for one-pixel adjustments (Shift for ten pixels), then choose **Apply crop**. **Open maximized window** gives the editor the full working area of its current monitor. Originals stay unchanged. **Ctrl+plus/minus** and **Ctrl+mouse wheel** zoom the image; **Ctrl+0** fits and **Ctrl+1** shows actual pixels.
+
+For a faster crop, use the small **Quick crop** button on Capture Pad. Quick edit starts on Crop and also includes Pen, Arrow, Line, Box, Ellipse, Highlight, Redact, Text and Step tools. Resize the guide, add markup, then press **Ctrl+C** to copy the selected area with your annotations. Switching tools keeps the crop. **Ctrl+S** saves a new image in history. **Save PDF** or **Ctrl+P** exports the selected area and markup as a PDF in history and Capture Pad, ready to drag into another app. It preserves the source pixels with lossless compression, splitting long images into A4 pages; raster text is not selectable. Neither image nor PDF export in Quick edit needs Apply crop first. Escape or Close leaves the original unchanged and closes without a discard prompt. Quick edit leaves unfinished regular-editor drafts alone.
 
 In history, click an image to open its editor or a PDF to open an independent copy in your default PDF app. Drag their previews to share. Text can be dragged from its content or grip; double-click selects the displayed text. Native text dragging uses the complete stored Clip.
 

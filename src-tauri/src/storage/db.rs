@@ -54,6 +54,8 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_clips_pinned ON clips(is_pinned);
             CREATE INDEX IF NOT EXISTS idx_clips_deleted ON clips(is_deleted);
              CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS image_aliases (original_hash TEXT PRIMARY KEY, normalized_hash TEXT NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_image_aliases_normalized ON image_aliases(normalized_hash);
 
             -- Full Text Search table for text clips
             CREATE VIRTUAL TABLE IF NOT EXISTS clips_fts USING fts5(
@@ -175,14 +177,35 @@ impl Database {
 
         let conn = self.conn.lock();
 
-        // Check if identical active image clip exists
-        let existing: Option<String> = conn
+        // Old image blobs retain their original hash/path. Remember normalized
+        // identities separately rather than rewriting originals or deleting history.
+        let mut existing: Option<String> = conn
             .query_row(
-                "SELECT id FROM clips WHERE hash = ?1 AND is_deleted = 0 ORDER BY created_at DESC LIMIT 1",
+                "SELECT id FROM clips WHERE clip_type='image' AND is_deleted=0 AND (hash=?1 OR hash IN (SELECT original_hash FROM image_aliases WHERE normalized_hash=?1)) ORDER BY created_at DESC LIMIT 1",
                 params![hash],
                 |row| row.get(0),
             )
             .ok();
+
+        if existing.is_none() {
+            let candidates = {
+                let mut query = conn.prepare("SELECT id,hash FROM clips WHERE clip_type='image' AND is_deleted=0 AND dimensions=?1 AND hash NOT IN (SELECT original_hash FROM image_aliases) ORDER BY created_at DESC LIMIT 64")?;
+                let rows = query.query_map(params![dimensions], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?)))?;
+                rows.collect::<Result<Vec<_>>>()?
+            };
+            for (id, original_hash) in candidates {
+                let normalized = std::fs::read(self.blob_store.get_blob_path(&original_hash)).ok().and_then(|bytes| {
+                    let image = super::blob::decode_image(&bytes).ok()?.into_rgba8();
+                    let mut png = std::io::Cursor::new(Vec::new());
+                    image.write_to(&mut png, image::ImageFormat::Png).ok()?;
+                    Some(BlobStore::compute_hash(png.get_ref()))
+                });
+                if let Some(normalized) = normalized {
+                    conn.execute("INSERT OR REPLACE INTO image_aliases VALUES (?1,?2)", params![original_hash, normalized])?;
+                    if normalized == hash { existing = Some(id); break; }
+                }
+            }
+        }
 
         let now = Utc::now().to_rfc3339();
 
@@ -867,6 +890,52 @@ mod tests {
         let is_unpinned = db.toggle_pin(&clip.id).unwrap();
         assert!(!is_unpinned);
 
+        drop(db);
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn identical_rgb_and_rgba_clipboard_images_share_one_clip() {
+        use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
+        use std::io::Cursor;
+        let temp_dir = test_directory();
+        let db = Database::new(&temp_dir.join("test.db"), &temp_dir.join("blobs")).unwrap();
+        let image = DynamicImage::ImageRgb8(RgbImage::from_pixel(37, 23, Rgb([19, 71, 203])));
+        let mut rgb = Cursor::new(Vec::new());
+        let mut rgba = Cursor::new(Vec::new());
+        image.write_to(&mut rgb, ImageFormat::Png).unwrap();
+        DynamicImage::ImageRgba8(image.to_rgba8()).write_to(&mut rgba, ImageFormat::Png).unwrap();
+        assert_ne!(rgb.get_ref(), rgba.get_ref());
+        let first = db.insert_image(rgb.get_ref(), Some("Lightshot.exe"), None).unwrap();
+        let second = db.insert_image(rgba.get_ref(), Some("WindowsTerminal.exe"), None).unwrap();
+        assert_eq!(first.id, second.id, "a terminal clipboard rewrite must not duplicate identical pixels");
+        assert_eq!(db.query_clips(&ClipFilter::default()).unwrap().len(), 1);
+        drop(db);
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_rgb_original_is_reused_without_rewriting_its_blob_or_id() {
+        use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
+        use std::io::Cursor;
+        let temp_dir = test_directory();
+        let db = Database::new(&temp_dir.join("test.db"), &temp_dir.join("blobs")).unwrap();
+        let image = DynamicImage::ImageRgb8(RgbImage::from_pixel(37, 23, Rgb([11, 43, 91])));
+        let mut rgb = Cursor::new(Vec::new());
+        image.write_to(&mut rgb, ImageFormat::Png).unwrap();
+        let first = db.insert_image(rgb.get_ref(), Some("Lightshot.exe"), None).unwrap();
+        // Seed the pre-normalization representation used by existing installations.
+        let legacy_hash = BlobStore::compute_hash(rgb.get_ref());
+        let original = db.blob_store.get_blob_path(&legacy_hash);
+        std::fs::write(&original, rgb.get_ref()).unwrap();
+        db.conn.lock().execute("UPDATE clips SET hash=?1 WHERE id=?2", params![legacy_hash, first.id]).unwrap();
+        let mut rgba = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(image.to_rgba8()).write_to(&mut rgba, ImageFormat::Png).unwrap();
+        let second = db.insert_image(rgba.get_ref(), Some("WindowsTerminal.exe"), None).unwrap();
+        assert_eq!(first.id, second.id);
+        assert_eq!(legacy_hash, second.hash);
+        assert_eq!(std::fs::read(original).unwrap(), *rgb.get_ref());
+        assert_eq!(db.query_clips(&ClipFilter::default()).unwrap().len(), 1);
         drop(db);
         std::fs::remove_dir_all(temp_dir).unwrap();
     }

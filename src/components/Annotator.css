@@ -19,6 +19,9 @@
   outline: none;
 }
 .annotator *, .annotator *::before, .annotator *::after { box-sizing: border-box; }
+.annotator-controls { flex-shrink: 0; }
+.annotator-crop.is-inactive { pointer-events: none; }
+.annotator-crop.is-inactive .crop-handle { visibility: hidden; }
 .annotator button {
   display: inline-flex;
   align-items: center;
@@ -166,4 +169,31 @@
   .annotator .annotator-tools button[aria-pressed="true"], .annotator-crop-modes button[aria-pressed="true"] { outline: 2px solid Highlight; }
   .annotator-crop { border-color: Highlight; outline-color: CanvasText; }
   .annotator-crop button.crop-handle::after { background: Canvas; border-color: CanvasText; }
+}
+
+/* The frozen desktop stays in place while the existing editor owns the selection. */
+.annotator.is-region { background: #111; }
+.is-region .annotator-stage { position: absolute; inset: 0; padding: 0; background: #111; }
+.is-region .annotator-canvas-container { margin: auto; }
+.is-region .annotator-stage canvas { box-shadow: none; }
+.is-region:not(.has-selection) .annotator-stage canvas { filter: brightness(.65); }
+.is-region .annotator-controls { position: absolute; z-index: 2; bottom: 78px; right: 16px; width: min(620px, calc(100% - 32px)); max-height: calc(100% - 170px); overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 6px 24px #0004; }
+.is-region .annotator-header { padding: 9px 12px; }
+.is-region .annotator-header h2 { font-size: 15px; }
+.is-region .annotator-header span { display: none; }
+.is-region .annotator-tools { gap: 2px; padding: 7px; }
+.is-region .annotator-tools button { min-width: 0; min-height: 40px; flex: 1 0 auto; }
+.is-region .annotator-header-actions button { min-height: 40px; width: 40px; }
+.is-region .annotator-footer { position: absolute; z-index: 2; bottom: 16px; right: 16px; width: min(620px, calc(100% - 32px)); padding: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: 0 4px 20px #0004; }
+.is-region .annotator-footer button { min-height: 40px; }
+.is-region .annotator-feedback { position: absolute; z-index: 2; top: 12px; left: 12px; max-width: min(460px, calc(100% - 24px)); padding: 8px 12px; border-radius: 7px; background: var(--surface); box-shadow: 0 2px 12px #0003; pointer-events: none; }
+.is-region .annotator-crop-actions { display: none; }
+.is-region:not(.has-selection) .annotator-controls { top: 56px; bottom: auto; right: auto; left: 50%; transform: translateX(-50%); width: auto; min-width: 250px; }
+.is-region:not(.has-selection) .annotator-controls > :not(.annotator-header), .is-region:not(.has-selection) .annotator-footer { display: none; }
+.is-region:not(.has-selection) .annotator-header { border: 0; }
+@media (max-width: 660px) {
+  .is-region .annotator-feedback { max-width: calc(100% - 24px); }
+  .is-region .annotator-controls { bottom: 126px; max-height: calc(100% - 215px); }
+  .is-region .annotator-footer { display: grid; grid-template-columns: 1fr 1fr; }
+  .is-region .annotator-footer > button:first-child { margin: 0; }
 }

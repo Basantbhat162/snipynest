@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.6.3 — unreleased
+
+- Screen snip opens SnipyNest's own area-selection overlay on the monitor under the pointer. Select first, add markup, then copy, save an image or save a PDF. Escape and focus loss cancel.
+- Added Ctrl-plus/minus and Ctrl-wheel image zoom, plus a straight Line tool. Quick edit keeps its pending crop when undoing markup.
+- Added Save PDF / Ctrl+P to the image editor. It exports the selection and markup as full-resolution, losslessly compressed image pages into history and Capture Pad.
+- Fixed identical RGB and opaque RGBA clipboard images becoming duplicate history entries when another app rewrites the image. Legacy originals remain intact; existing duplicate rows are not removed automatically.
+
 ## 1.6.2 — unreleased
 
 - Quick edit from Capture Pad now includes pen, arrows, shapes, highlight, text, steps and redaction. A pending crop survives tool switches and Ctrl+C/Ctrl+S includes the markup without Apply crop.

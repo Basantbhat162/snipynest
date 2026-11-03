@@ -11,7 +11,7 @@ const compiled = ts.transpileModule(readFileSync(new URL("../src/components/Anno
   compilerOptions: {module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022},
 }).outputText;
 
-function editorHarness(quickCrop = false) {
+function editorHarness(quickCrop = false, regionCapture) {
   const slots = [];
   let cursor = 0, tree, loads = [], listeners = [];
   let copied = 0, closed = 0, saved = 0, exportedCrop;
@@ -63,7 +63,7 @@ function editorHarness(quickCrop = false) {
   const render = () => {
     cursor = 0;
     listeners = [];
-    tree = exports.AnnotatorModal({quickCrop, clip: {id: "fixture"}, onClose: () => {closed++;}, onSave: async () => {saved++;}, onCopyResult: async () => {copied++;}});
+    tree = exports.AnnotatorModal({quickCrop, regionCapture, clip: {id: "fixture"}, onClose: () => {closed++;}, onSave: async () => {saved++;}, onCopyResult: async () => {copied++;}});
     return tree;
   };
   const nodes = () => {
@@ -122,6 +122,19 @@ test("opening Crop starts with a full-image adjustable guide and eight resize ta
   assert.equal(editor.nodes().filter(node => node.props?.className?.startsWith("crop-handle ")).length, 8);
   assert.ok(editor.button("Resize crop left edge"));
   assert.equal(editor.button("Adjust edges").props["aria-pressed"], true);
+});
+
+test("Ctrl plus and minus zoom the image and Ctrl zero restores Fit", async () => {
+  const editor = editorHarness(true);
+  await editor.load();
+  const fitWidth = editor.crop().props.style.width;
+  editor.key("+", undefined, true, true); editor.render();
+  const enlarged = editor.crop().props.style.width;
+  assert.ok(enlarged > fitWidth, "Ctrl+plus must magnify the image");
+  editor.key("-", undefined, false, true); editor.render();
+  assert.ok(editor.crop().props.style.width < enlarged);
+  editor.key("0", undefined, false, true); editor.render();
+  assert.equal(editor.crop().props.style.width, fitWidth);
 });
 
 test("Draw area clears the guide and Adjust edges restores it", async () => {
@@ -249,7 +262,7 @@ test("Quick crop closes with Escape without a discard prompt", async () => {
 test("Quick crop exposes markup tools and keeps its pending crop when switching tools", async () => {
   const editor = editorHarness(true); await editor.load();
   const tool = label => editor.find(node => node.type === "button" && node.props.children?.[1]?.props?.children === label);
-  for (const label of ["Crop", "Pen", "Arrow", "Box", "Ellipse", "Highlight", "Redact", "Text", "Step", "Pan"])
+  for (const label of ["Crop", "Pen", "Arrow", "Line", "Box", "Ellipse", "Highlight", "Redact", "Text", "Step", "Pan"])
     assert.ok(tool(label), `Quick crop must offer ${label}`);
   editor.key("ArrowRight", "w", true); editor.render();
   const selection = editor.crop().props.style;
@@ -257,4 +270,34 @@ test("Quick crop exposes markup tools and keeps its pending crop when switching 
   assert.equal(editor.crop(), undefined, "The crop overlay must not intercept drawing");
   tool("Crop").props.onClick(); editor.render();
   assert.deepEqual(editor.crop().props.style, selection, "Switching tools must keep the export selection");
+});
+
+test("Save PDF exports the pending crop without Apply crop", async () => {
+  const original = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+  try {
+    const editor = editorHarness(); await editor.load();
+    editor.key("ArrowRight", "w", true); editor.render();
+    const pdf = editor.find(node => node.type === "button" && node.props.children?.[1] === "Save PDF");
+    assert.equal(pdf.props.disabled, false);
+    editor.key("p", undefined, false, true);
+    const deadline = Date.now() + 2000;
+    while (!editor.closed && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(editor.closed, 1);
+    assert.deepEqual(editor.exportedCrop, {x: 10, y: 0, width: 90, height: 80});
+    assert.ok(editor.nativeCalls.some(call => call.name === "save_image_pdf"));
+    assert.equal(editor.saved, 0, "PDF export must not also save a PNG clip");
+  } finally { globalThis.requestAnimationFrame = original; }
+});
+
+test("area capture begins without a selection or clipboard write and Escape cancels it", async () => {
+  const editor = editorHarness(true, {id: "area-fixture", image: "data:fixture"});
+  await editor.load();
+  assert.equal(editor.crop(), undefined);
+  assert.equal(editor.copied, 0);
+  editor.key("c", undefined, false, true);
+  assert.equal(editor.copied, 0, "No selection must never copy the entire monitor");
+  editor.key("Escape"); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(editor.closed, 1);
+  assert.deepEqual(editor.nativeCalls.at(-1), {name: "cancel_region_capture", args: {id: "area-fixture"}});
 });

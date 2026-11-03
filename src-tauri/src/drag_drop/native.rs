@@ -426,46 +426,6 @@ extern "system" {
     fn SHGetPathFromIDListEx(id: *const c_void, path: *mut u16, size: u32, flags: u32) -> i32;
 }
 
-pub fn launch_screen_snip() -> Result<(), String> {
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_LWIN, VK_SHIFT,
-    };
-    // Use Windows' documented interactive snipping shortcut. The URI callback
-    // protocol requires MSIX identity; this NSIS application has none.
-    let key = |code, up| INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: code,
-                wScan: 0,
-                dwFlags: if up { KEYEVENTF_KEYUP } else { 0 },
-                time: 0,
-                dwExtraInfo: 0,
-            },
-        },
-    };
-    let inputs = [
-        key(VK_LWIN, false),
-        key(VK_SHIFT, false),
-        key(0x53, false),
-        key(0x53, true),
-        key(VK_SHIFT, true),
-        key(VK_LWIN, true),
-    ];
-    let sent = unsafe {
-        SendInput(
-            inputs.len() as u32,
-            inputs.as_ptr(),
-            std::mem::size_of::<INPUT>() as i32,
-        )
-    };
-    if sent != inputs.len() as u32 {
-        Err("Windows blocked the screen snipping shortcut".into())
-    } else {
-        Ok(())
-    }
-}
-
 pub fn choose_folder(owner: isize) -> Result<Option<PathBuf>, String> {
     unsafe {
         let initialized = OleInitialize(null());

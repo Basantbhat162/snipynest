@@ -276,6 +276,31 @@ pub async fn save_annotated_image(
 }
 
 #[tauri::command]
+pub async fn save_image_pdf(app: AppHandle, window: WebviewWindow, state: State<'_, AppState>, data_base64: String) -> Result<Clip, String> {
+    let db = state.db.clone();
+    let arrivals = state.image_arrivals.clone();
+    let clip = tauri::async_runtime::spawn_blocking(move || {
+        if data_base64.len() > crate::storage::blob::MAX_ENCODED_IMAGE_BYTES * 4 / 3 + 128 {
+            return Err("Image payload exceeds the 64 MB limit".into());
+        }
+        let bytes = BASE64.decode(data_base64.split_once("base64,").map_or(data_base64.as_str(), |(_, value)| value)).map_err(|e| e.to_string())?;
+        let pdf = crate::image_pdf::from_png(&bytes)?;
+        let clip = db.insert_pdf(&pdf, Some(&bytes), Some("SnipyNest Annotator"), Some("Edited capture PDF")).map_err(|e| e.to_string())?;
+        arrivals.lock().should_notify(&clip.hash, None);
+        Ok::<_, String>(clip)
+    }).await.map_err(|e| e.to_string())??;
+    let _ = app.emit("new-clip", &clip);
+    if window.label() != "capture-overlay" {
+        let handle = app.clone();
+        let arrival = clip.clone();
+        app.run_on_main_thread(move || {
+            crate::window::image_arrived(&handle, &arrival, crate::window::active_monitor_work_area());
+        }).map_err(|e| e.to_string())?;
+    }
+    Ok(clip)
+}
+
+#[tauri::command]
 pub fn prepare_drag_drop(
     state: State<'_, AppState>,
     clip_ids: Vec<String>,
@@ -428,56 +453,7 @@ pub fn set_interaction_active(state: State<'_, AppState>, active: bool) {
 
 #[tauri::command]
 pub async fn capture_screen(app: AppHandle) -> Result<(), String> {
-    if app
-        .state::<AppState>()
-        .native_drag_active
-        .load(Ordering::Relaxed)
-    {
-        return Err("Finish the current drag before snipping".into());
-    }
-    let (send, receive) = std::sync::mpsc::channel();
-    let handle = app.clone();
-    app.run_on_main_thread(move || {
-        let result = (|| {
-            if let Some(window) = handle.get_webview_window("main") {
-                hide_history_window(&window)?;
-            }
-            if handle.get_webview_window("capture-pad").is_some() {
-                crate::window::hide_pad_native(&handle)?;
-            }
-            Ok::<(), String>(())
-        })();
-        let _ = send.send(result);
-    })
-    .map_err(|e| e.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || receive.recv())
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|_| "Snip preparation did not complete")??;
-    tauri::async_runtime::spawn_blocking(|| {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
-        for _ in 0..100 {
-            if unsafe {
-                GetAsyncKeyState(0x11) >= 0
-                    && GetAsyncKeyState(0x10) >= 0
-                    && GetAsyncKeyState(0x12) >= 0
-            } {
-                return Ok::<(), String>(());
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        Err("Release Ctrl, Shift and Alt before starting another snip".into())
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    if let Err(error) = crate::drag_drop::native::launch_screen_snip() {
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
-        return Err(error);
-    }
-    Ok(())
+    crate::region_capture::start(app).await
 }
 
 #[tauri::command]

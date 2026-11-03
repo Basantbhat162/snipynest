@@ -55,7 +55,9 @@ impl BlobStore {
         &self,
         bytes: &[u8],
     ) -> std::io::Result<(String, Option<String>, Option<String>)> {
-        let img = decode_image(bytes)?;
+        // RGB PNGs and opaque RGBA PNGs are the same clipboard image. Use one
+        // pixel representation so a terminal rewrite cannot create another hash.
+        let img = image::DynamicImage::ImageRgba8(decode_image(bytes)?.into_rgba8());
         let mut png = Vec::new();
         img.write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
             .map_err(std::io::Error::other)?;

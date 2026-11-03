@@ -53,6 +53,7 @@ let clips: Clip[] = Array.from({ length: 125 }, (_, i) => ({
 let pinned = true;
 const isPad = new URLSearchParams(location.search).get("surface") === "pad";
 const isQuickCrop = new URLSearchParams(location.search).get("surface") === "crop";
+const isRegion = new URLSearchParams(location.search).get("surface") === "region";
 const isPdf = new URLSearchParams(location.search).get("surface") === "pdf";
 const copiedPng = document.createElement("img");
 copiedPng.id = "fixture-copy"; copiedPng.alt = "Copied crop verification";
@@ -69,6 +70,9 @@ mockIPC(
   async (command, payload: any) => {
     switch (command) {
       case "get_pad_unread": return 3;
+      case "show_region_capture": document.body.dataset.regionShown = "true"; return;
+      case "cancel_region_capture": document.body.dataset.closed = "true"; return;
+      case "save_image_pdf": document.body.dataset.pdf = payload.dataBase64; return {...clips[0], id:"pdf-fixture", clip_type:"file"};
       case "dismiss_capture_pad":
       case "move_utility_window":
       case "open_from_pad": {
@@ -176,6 +180,6 @@ function PdfFixture() {
 }
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {isPad ? <><div style={{ width:216, height:112 }}><CapturePad /></div><p id="fixture-status" role="status">Pad fixture: native actions are simulated</p></> : isQuickCrop ? <AnnotatorModal quickCrop clip={clips[0]} onClose={()=>{document.body.dataset.closed="true";}} onSave={async png=>{document.body.dataset.saved=png;}} onCopyResult={async png=>{copiedPng.src=png;document.body.append(copiedPng);}}/> : isPdf ? <PdfFixture/> : <App />}
+    {isPad ? <><div style={{ width:216, height:112 }}><CapturePad /></div><p id="fixture-status" role="status">Pad fixture: native actions are simulated</p></> : isQuickCrop || isRegion ? <AnnotatorModal regionCapture={isRegion ? {id:"fixture-region", image} : undefined} quickCrop clip={clips[0]} onClose={()=>{document.body.dataset.closed="true";}} onSave={async png=>{document.body.dataset.saved=png;}} onCopyResult={async png=>{copiedPng.src=png;document.body.append(copiedPng);}}/> : isPdf ? <PdfFixture/> : <App />}
   </React.StrictMode>,
 );

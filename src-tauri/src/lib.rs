@@ -3,8 +3,10 @@ pub mod clipboard;
 pub mod commands;
 pub mod drag_drop;
 pub mod keyboard;
+pub mod image_pdf;
 pub mod lifecycle;
 pub mod preferences;
+pub mod region_capture;
 pub mod screen_capture;
 pub mod sound;
 pub mod storage;
@@ -313,6 +315,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(state)
+        .manage(region_capture::RegionState::default())
         .setup(move |app| {
             let app_handle = app.handle().clone();
             if let Err(message) = browser_bridge::start() {
@@ -455,6 +458,18 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(move |window, event| {
+            if window.label() == "capture-overlay" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    region_capture::cancel(window.app_handle());
+                }
+                if let tauri::WindowEvent::Focused(false) = event {
+                    if !window::has_native_focus(window) {
+                        region_capture::cancel(window.app_handle());
+                    }
+                }
+                return;
+            }
             if window.label() == "capture-pad" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
@@ -504,6 +519,11 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            region_capture::get_region_capture_snapshot,
+            region_capture::show_region_capture,
+            region_capture::cancel_region_capture,
+            region_capture::copy_region_capture,
+            region_capture::finish_region_capture,
             browser_bridge::browser_control_status,
             browser_bridge::install_browser_control,
             keyboard::disarm,
@@ -540,6 +560,7 @@ pub fn run() {
             commands::copy_clip_to_clipboard,
             commands::copy_image_base64_to_clipboard,
             commands::save_annotated_image,
+            commands::save_image_pdf,
             commands::prepare_drag_drop,
             commands::export_clips,
             commands::toggle_sidebar,

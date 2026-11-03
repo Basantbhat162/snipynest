@@ -10,6 +10,7 @@ export type AnnotationTool =
   | "pen"
   | "highlight"
   | "arrow"
+  | "line"
   | "rect"
   | "ellipse"
   | "redact"
@@ -78,6 +79,7 @@ export function drawAnnotation(
       );
       ctx.stroke();
       break;
+    case "line":
     case "arrow": {
       const angle = Math.atan2(end.y - start.y, end.x - start.x);
       const head = Math.min(
@@ -88,6 +90,7 @@ export function drawAnnotation(
       ctx.moveTo(start.x, start.y);
       ctx.lineTo(end.x, end.y);
       ctx.stroke();
+      if (action.tool === "line") break;
       ctx.beginPath();
       ctx.moveTo(end.x, end.y);
       ctx.lineTo(
