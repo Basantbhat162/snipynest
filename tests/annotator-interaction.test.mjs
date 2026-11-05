@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import * as cropGeometry from "../src/annotation/crop.ts";
 import * as geometry from "../src/annotation/geometry.ts";
+import * as regionLayout from "../src/annotation/region-layout.ts";
 
 // Run the production component and its handlers. Canvas drawing and native IPC
 // are adapters; document pixel correctness has its own production-document tests.
@@ -11,10 +12,10 @@ const compiled = ts.transpileModule(readFileSync(new URL("../src/components/Anno
   compilerOptions: {module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022},
 }).outputText;
 
-function editorHarness() {
+function editorHarness(quickCrop = false, regionCapture) {
   const slots = [];
   let cursor = 0, tree, loads = [], listeners = [];
-  let copied = 0, closed = 0;
+  let copied = 0, closed = 0, saved = 0, exportedCrop;
   const nativeCalls = [];
   const hooks = {
     useState(initial) {
@@ -40,7 +41,7 @@ function editorHarness() {
     canvas = {width: 100, height: 80};
     canUndo = false;
     canRedo = false;
-    exportPng() { return "synthetic-png"; }
+    exportPng(crop) { exportedCrop = crop; return "synthetic-png"; }
     dispose() {}
   }
   const modules = {
@@ -52,6 +53,8 @@ function editorHarness() {
     "../annotation/document": {AnnotationDocument: TestDocument},
     "../annotation/crop": cropGeometry,
     "../annotation/geometry": geometry,
+    "../annotation/region-layout": regionLayout,
+    "./RegionToolbar": {RegionToolbar: function RegionToolbar() {}},
     "lucide-react": new Proxy({}, {get: (_target, name) => name}),
     "./Annotator.css": {},
   };
@@ -63,7 +66,7 @@ function editorHarness() {
   const render = () => {
     cursor = 0;
     listeners = [];
-    tree = exports.AnnotatorModal({clip: {id: "fixture"}, onClose: () => {closed++;}, onSave: async () => {}, onCopyResult: async () => {copied++;}});
+    tree = exports.AnnotatorModal({quickCrop, regionCapture, clip: {id: "fixture"}, onClose: () => {closed++;}, onSave: async () => {saved++;}, onCopyResult: async () => {copied++;}});
     return tree;
   };
   const nodes = () => {
@@ -82,17 +85,17 @@ function editorHarness() {
   const crop = () => find(node => node.props?.className === "annotator-crop");
   render();
   return {render, nodes, find, button, crop, nativeCalls,
-    key(key, edge, shiftKey = false) {
+    key(key, edge, shiftKey = false, ctrlKey = false) {
       const previousWindow = globalThis.window, previousElement = globalThis.HTMLElement;
       const handlers = new Map();
       class Element {dataset = edge ? {edge} : {}; tagName = edge ? "BUTTON" : "DIV"; closest() {return edge ? this : null;} }
       globalThis.HTMLElement = Element;
       globalThis.window = {addEventListener: (name, handler) => handlers.set(name, handler), removeEventListener() {}};
       const cleanups = listeners.map(effect => effect());
-      try { handlers.get("keydown")({key, code:key, target:new Element(), shiftKey, ctrlKey:false, metaKey:false, preventDefault(){},stopImmediatePropagation(){}}); }
+      try { handlers.get("keydown")({key, code:key, target:new Element(), shiftKey, ctrlKey, metaKey:false, preventDefault(){},stopImmediatePropagation(){}}); }
       finally {cleanups.forEach(cleanup=>cleanup?.()); globalThis.window=previousWindow;globalThis.HTMLElement=previousElement;}
     },
-    get copied() {return copied;}, get closed() {return closed;},
+    get copied() {return copied;}, get closed() {return closed;}, get saved() {return saved;}, get exportedCrop() {return exportedCrop;},
     async load() {
       const OriginalImage = globalThis.Image;
       globalThis.Image = class {width = 100; height = 80; set src(value) {if (value) queueMicrotask(() => this.onload());}};
@@ -112,6 +115,13 @@ function pointer(target, pointerId = 1, clientX = 0, clientY = 0) {
   return {button: 0, pointerId, clientX, clientY, preventDefault() {}, stopPropagation() {},
     target: {dataset: target, closest: () => ({focus() {}})}, currentTarget: host};
 }
+test("right clicking area capture offers a keyboard accessible Cancel action",async()=>{
+ const editor=editorHarness(true,{id:"region",image:"data:fixture"});await editor.load();
+ editor.find(n=>n.props?.role==="dialog").props.onContextMenu({clientX:15,clientY:20,preventDefault(){}});editor.render();
+ const cancel=editor.find(n=>n.props?.role==="menuitem");assert.ok(cancel);
+ cancel.props.onClick();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(editor.closed,1);assert.ok(editor.nativeCalls.some(call=>call.name==="cancel_region_capture"));
+});
 
 test("opening Crop starts with a full-image adjustable guide and eight resize targets", async () => {
   const editor = editorHarness();
@@ -122,6 +132,19 @@ test("opening Crop starts with a full-image adjustable guide and eight resize ta
   assert.equal(editor.nodes().filter(node => node.props?.className?.startsWith("crop-handle ")).length, 8);
   assert.ok(editor.button("Resize crop left edge"));
   assert.equal(editor.button("Adjust edges").props["aria-pressed"], true);
+});
+
+test("Ctrl plus and minus zoom the image and Ctrl zero restores Fit", async () => {
+  const editor = editorHarness(true);
+  await editor.load();
+  const fitWidth = editor.crop().props.style.width;
+  editor.key("+", undefined, true, true); editor.render();
+  const enlarged = editor.crop().props.style.width;
+  assert.ok(enlarged > fitWidth, "Ctrl+plus must magnify the image");
+  editor.key("-", undefined, false, true); editor.render();
+  assert.ok(editor.crop().props.style.width < enlarged);
+  editor.key("0", undefined, false, true); editor.render();
+  assert.equal(editor.crop().props.style.width, fitWidth);
 });
 
 test("Draw area clears the guide and Adjust edges restores it", async () => {
@@ -212,4 +235,88 @@ test("the initial guide does not disable Copy or Save until the crop changes", a
   editor.crop().props.onPointerDown(down);
   editor.crop().props.onPointerUp({...down, clientX: 0.2}); editor.render();
   assert.equal(action("Copy image").props.disabled, true);
+});
+
+test("Quick crop copies the pending selection with Ctrl+C and saves with Ctrl+S", async () => {
+  const waitFor=async(predicate)=>{
+    const deadline=Date.now()+2000;
+    while(!predicate()&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,1));
+    assert.ok(predicate(),"Export did not finish within the test deadline");
+  };
+  const previous = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+  try {
+    const editor = editorHarness(true); await editor.load();
+    editor.key("ArrowRight", "w", true); editor.render();
+    const action = label => editor.find(node => node.type === "button" && node.props.children?.[1] === label);
+    assert.equal(action("Copy image").props.disabled, false);
+    editor.key("c", undefined, false, true);
+    await waitFor(()=>editor.copied===1); editor.render();
+    assert.equal(editor.copied, 1);
+    assert.deepEqual(editor.exportedCrop, {x:10,y:0,width:90,height:80});
+    assert.equal(editor.saved, 0); assert.equal(editor.closed, 0);
+    editor.key("s", undefined, false, true);
+    await waitFor(()=>editor.closed===1); editor.render();
+    assert.equal(editor.saved, 1); assert.equal(editor.closed, 1);
+  } finally { globalThis.requestAnimationFrame = previous; }
+});
+
+test("Quick crop closes with Escape without a discard prompt", async () => {
+  const editor = editorHarness(true); await editor.load();
+  editor.key("ArrowRight", "w"); editor.render();
+  editor.key("Escape"); await new Promise(resolve => setImmediate(resolve)); editor.render();
+  assert.equal(editor.closed, 1);
+  assert.equal(editor.find(node=>node.props?.role === "alertdialog"), undefined);
+});
+
+test("Quick crop exposes markup tools and keeps its pending crop when switching tools", async () => {
+  const editor = editorHarness(true); await editor.load();
+  const tool = label => editor.find(node => node.type === "button" && node.props.children?.[1]?.props?.children === label);
+  for (const label of ["Crop", "Pen", "Arrow", "Line", "Box", "Ellipse", "Highlight", "Redact", "Text", "Step", "Pan"])
+    assert.ok(tool(label), `Quick crop must offer ${label}`);
+  editor.key("ArrowRight", "w", true); editor.render();
+  const selection = editor.crop().props.style;
+  tool("Pen").props.onClick(); editor.render();
+  assert.equal(editor.crop(), undefined, "The crop overlay must not intercept drawing");
+  tool("Crop").props.onClick(); editor.render();
+  assert.deepEqual(editor.crop().props.style, selection, "Switching tools must keep the export selection");
+});
+
+test("Save PDF exports the pending crop without Apply crop", async () => {
+  const original = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+  try {
+    const editor = editorHarness(); await editor.load();
+    editor.key("ArrowRight", "w", true); editor.render();
+    const pdf = editor.find(node => node.type === "button" && node.props.children?.[1] === "Save PDF");
+    assert.equal(pdf.props.disabled, false);
+    editor.key("p", undefined, false, true);
+    const deadline = Date.now() + 2000;
+    while (!editor.closed && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 1));
+    assert.equal(editor.closed, 1);
+    assert.deepEqual(editor.exportedCrop, {x: 10, y: 0, width: 90, height: 80});
+    assert.ok(editor.nativeCalls.some(call => call.name === "save_image_pdf"));
+    assert.equal(editor.saved, 0, "PDF export must not also save a PNG clip");
+  } finally { globalThis.requestAnimationFrame = original; }
+});
+
+test("area capture begins without a selection or clipboard write and Escape cancels it", async () => {
+  const editor = editorHarness(true, {id: "area-fixture", image: "data:fixture"});
+  await editor.load();
+  assert.equal(editor.crop(), undefined);
+  assert.equal(editor.copied, 0);
+  editor.key("c", undefined, false, true);
+  assert.equal(editor.copied, 0, "No selection must never copy the entire monitor");
+  editor.key("Escape"); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(editor.closed, 1);
+  assert.deepEqual(editor.nativeCalls.at(-1), {name: "cancel_region_capture", args: {id: "area-fixture"}});
+});
+
+test("area capture does not render the full editor panel or footer", async () => {
+  const editor = editorHarness(true, {id: "area-fixture", image: "data:fixture"});
+  await editor.load();
+  assert.equal(editor.find(node => node.props?.className === "annotator-controls"), undefined,
+    "Area capture must use selection-attached tool strips, not the full editor panel");
+  assert.equal(editor.find(node => node.props?.className === "annotator-footer"), undefined);
+  assert.ok(editor.find(node => node.props?.id === "annotator-title"), "The capture still needs an accessible dialog name");
 });

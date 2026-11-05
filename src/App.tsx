@@ -28,7 +28,7 @@ import { ClipCard } from "./components/ClipCard";
 import { MultiDropBar } from "./components/MultiDropBar";
 import { HousekeepingModal } from "./components/HousekeepingModal";
 import { AnnotatorModal } from "./components/AnnotatorModal";
-import { selectionAfterDrop } from "./lib/selection";
+import { selectionAfterDrop, selectRange } from "./lib/selection";
 import { readDraft } from "./annotation/drafts";
 import { Dialog } from "./components/Dialog";
 import { HistoryController, PAGE_SIZE } from "./lib/history";
@@ -55,7 +55,7 @@ export function App() {
         invoke<Clip[]>("get_clips", { filter }),
       ),
   );
-  const { clips, loading, error, hasNext } = useSyncExternalStore(
+  const { clips, loading, error, hasNext, view } = useSyncExternalStore(
     history.subscribe,
     history.getSnapshot,
   );
@@ -63,9 +63,24 @@ export function App() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectionAnchor = useRef<string | null>(null);
+  const revealRequest = useRef(0);
+  const pendingReveal = useRef<{id:string;page:number;category:Category} | null>(null);
+  const [revealedId, setRevealedId] = useState<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [isPinned, setIsPinned] = useState(false);
   const [annotatingClip, setAnnotatingClip] = useState<Clip | null>(null);
+  const [quickCrop, setQuickCrop] = useState(false);
+  const editorBusy = useRef(false);
+  editorBusy.current = !!annotatingClip;
+  useEffect(() => {
+    const subscription = listen<Clip>("quick-crop-request", event => {
+      if (editorBusy.current) { setNotice({message:"Close the current editor before opening Quick crop.",error:true}); return; }
+      editorBusy.current = true;
+      setQuickCrop(true); setAnnotatingClip(event.payload);
+    });
+    return () => { void subscription.then(unlisten=>unlisten()); };
+  }, []);
   const [showStorage, setShowStorage] = useState(false);
   const [batch, setBatch] = useState<{token:string;count:number}|null>(null);
   const [includePinned, setIncludePinned] = useState(false);
@@ -79,6 +94,7 @@ export function App() {
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
+  const statsTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const current = useRef({ category, search, page });
   current.current = { category, search, page };
   const modalOpen = !!annotatingClip || showStorage || !!deleteId || !!batch;
@@ -126,6 +142,7 @@ export function App() {
       search.trim() ? 150 : 0,
     );
     setSelectedIds(new Set());
+    selectionAnchor.current = null;
     setFocusedIndex(0);
     parentRef.current?.scrollTo({ top: 0 });
     return () => {
@@ -143,8 +160,10 @@ export function App() {
     const subscription = listen("new-clip", () => {
       clearTimeout(refreshTimer.current);
       refreshTimer.current = setTimeout(() => {
-        void refresh();
+        const q=current.current;
+        void history.load(q.category,q.search,q.page,true);
       }, 100);
+      if (!statsTimer.current) statsTimer.current=setTimeout(()=>{statsTimer.current=undefined;void refreshStats();},5000);
     });
     const dragSubscription = listen<{ dropped: boolean; error?: string }>(
       "native-drag-end",
@@ -161,6 +180,7 @@ export function App() {
     captureErrorSubscription.catch(report);
     return () => {
       clearTimeout(refreshTimer.current);
+      clearTimeout(statsTimer.current);
       void subscription.then((unlisten) => unlisten()).catch(() => {});
       void dragSubscription.then((unlisten) => unlisten()).catch(() => {});
       void captureErrorSubscription
@@ -197,22 +217,48 @@ export function App() {
     getItemKey: (index) => clips[index]?.id ?? index,
     overscan: 5,
   });
-  const select = (id: string, multi: boolean) =>
-    setSelectedIds((previous) => {
-      const next = new Set(multi ? previous : []);
-      if (previous.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  const select = (id: string, range: boolean) => {
+    const anchor = range ? selectionAnchor.current : id;
+    setSelectedIds(previous => selectRange(previous, clips.map(clip=>clip.id), anchor, id, !previous.has(id)));
+    if (!range || !selectionAnchor.current) selectionAnchor.current = id;
+  };
+  async function reveal(id: string) {
+    const request = ++revealRequest.current;
+    try {
+      const destination = category === "trash" ? "trash" : "all";
+      const position = await invoke<number | null>("locate_clip_in_history", {id, trash:destination === "trash"});
+      if (request !== revealRequest.current) return;
+      if (position === null) throw new Error("This clip is no longer in history. Refresh and try again.");
+      const targetPage = Math.floor(position / PAGE_SIZE);
+      pendingReveal.current = {id, page:targetPage, category:destination};
+      history.clear(); setRevealedId(id); setCategory(destination); setSearch(""); setPage(targetPage);
+    } catch (error) { if (request === revealRequest.current) report(error); }
+  }
+  useEffect(() => {
+    const target = pendingReveal.current;
+    if (!target || loading || search || target.page !== page || target.category !== category || view?.search !== "" || view.page !== page || view.category !== category) return;
+    const index = clips.findIndex(clip=>clip.id === target.id);
+    if (index < 0) { pendingReveal.current=null; setNotice({message:"History changed while locating this clip. Search again to locate it.",error:true}); return; }
+    setFocusedIndex(index);
+    virtualizer.scrollToIndex(index, {align:"center"});
+    const frame = requestAnimationFrame(() => {
+      virtualizer.scrollToIndex(index, {align:"center"});
+      parentRef.current?.focus({preventScroll:true});
+      pendingReveal.current=null;
     });
+    return () => cancelAnimationFrame(frame);
+  }, [clips, loading, page, search, category, virtualizer, view]);
   function chooseCategory(next: Category) {
     if (next === category && page === 0) return;
-    history.invalidate();
+    history.clear();
+    ++revealRequest.current; pendingReveal.current=null; setRevealedId(null);
     setCategory(next);
     setPage(0);
   }
   function changeSearch(value: string) {
     if (value === search && page === 0) return;
-    history.invalidate();
+    history.clear();
+    ++revealRequest.current; pendingReveal.current=null; setRevealedId(null);
     setSearch(value);
     setPage(0);
   }
@@ -504,7 +550,8 @@ export function App() {
                   key={row.key}
                   ref={virtualizer.measureElement}
                   data-index={row.index}
-                  className="clip-row"
+                  className={"clip-row" + (revealedId === clip.id ? " revealed" : "")}
+                  data-clip-id={clip.id}
                   style={{
                     position: "absolute",
                     top: 0,
@@ -524,12 +571,17 @@ export function App() {
                     }
                     busy={busy}
                     onSelect={select}
+                    onReveal={search.trim() ? id => void reveal(id) : undefined}
                     onCopy={(clip) => void copy(clip)}
                     onTogglePin={(id) => void mutate("toggle_clip_pin", id)}
                     onTrash={(id) => void trash([id])}
                     onRestore={(id) => void restore([id])}
                     onPermanentDelete={setDeleteId}
                     onOpenAnnotator={setAnnotatingClip}
+                    onOpenPreview={clip => {
+                      if (clip.clip_type === "image") { setQuickCrop(false); setAnnotatingClip(clip); }
+                      else void run(async () => { await invoke("open_clip_file", {id:clip.id}); });
+                    }}
                     onNativeDrag={(id) =>
                       startDrag(selectedIds.has(id) ? [...selectedIds] : [id])
                     }
@@ -550,6 +602,12 @@ export function App() {
         onTrashSelected={() => void trash([...selectedIds])}
         onRestoreSelected={() => void restore([...selectedIds])}
         onNativeDrag={() => startDrag([...selectedIds])}
+        canCopyText={clips.filter(clip=>selectedIds.has(clip.id)).every(clip=>["text","code","link"].includes(clip.clip_type))}
+        onCopyText={()=>void run(async()=>{
+          const copied=await invoke<boolean>("copy_selected_text",{ids:clips.filter(clip=>selectedIds.has(clip.id)).map(clip=>clip.id)});
+          if(!copied)throw new Error("Clipboard is busy. Try Copy text again.");
+          setNotice({message:`Copied ${selectedIds.size} clips as text`});
+        })}
       />
       <footer className="history-footer">
         <span>
@@ -581,7 +639,8 @@ export function App() {
       {annotatingClip && (
         <AnnotatorModal
           clip={annotatingClip}
-          onClose={() => { setAnnotatingClip(null); void readDraft().then(d=>setRecoverableClip(d?.clip || null)).catch(()=>{}); }}
+          quickCrop={quickCrop}
+          onClose={() => { setAnnotatingClip(null); setQuickCrop(false); void readDraft().then(d=>setRecoverableClip(d?.clip || null)).catch(()=>{}); }}
           onSave={async (dataBase64, originalId) => {
             await invoke("save_annotated_image", { dataBase64, originalId });
             setNotice({ message: "Edited image saved to history" });

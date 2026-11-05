@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use image::ImageFormat;
 use windows_sys::Win32::Foundation::{CloseHandle, GlobalFree, HANDLE, HGLOBAL, HWND};
-use windows_sys::Win32::Graphics::Gdi::{BITMAPINFOHEADER, BITMAPV5HEADER, BI_BITFIELDS};
+use windows_sys::Win32::Graphics::Gdi::{BITMAPV5HEADER, BI_BITFIELDS};
 use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardOwner,
     IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
@@ -27,6 +27,7 @@ pub const CF_HDROP: u32 = 15;
 pub const CF_DIBV5: u32 = 17;
 
 pub struct ClipboardItem {
+    pub pdf: Option<Vec<u8>>,
     pub text: Option<String>,
     pub image_png: Option<Vec<u8>>,
     pub source_app: Option<String>,
@@ -118,8 +119,20 @@ fn get_window_app_info(hwnd: HWND) -> (Option<String>, Option<String>) {
 
 /// Read current clipboard content (text or image)
 pub fn read_clipboard_content() -> Option<ClipboardItem> {
+    read_snapshot(None)
+}
+
+pub fn read_clipboard_sequence(sequence:u32) -> Option<ClipboardItem> {
+    read_snapshot(Some(sequence))
+}
+
+fn read_snapshot(expected:Option<u32>) -> Option<ClipboardItem> {
     if !open_clipboard_with_retry(std::ptr::null_mut(), 5) {
         return None;
+    }
+
+    if expected.is_some_and(|sequence| sequence != unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() }) {
+        unsafe {CloseClipboard();} return None;
     }
 
     if is_clipboard_ignored() {
@@ -160,6 +173,25 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
             }
         }
 
+        // Explicit PDF capture carries a normal PNG for paste plus a Chromium custom format.
+        if let Some(pdf) = read_registered_format("Web Custom Format Map", 64 * 1024)
+            .and_then(|metadata| super::pdf::format_name(&metadata))
+            .and_then(|name| read_registered_format(&name, super::pdf::MAX_PDF_BYTES))
+            .filter(|bytes| super::pdf::valid_pdf(bytes))
+        {
+            let remaining = 64 * 1024 * 1024 - pdf.len();
+            let image_png = read_registered_format("PNG", remaining)
+                .or_else(|| read_registered_format("image/png", remaining));
+            CloseClipboard();
+            return Some(ClipboardItem {
+                pdf: Some(pdf),
+                image_png,
+                text: None,
+                source_app,
+                source_title,
+            });
+        }
+
         // Priority 1: Check for registered PNG ("image/png" for Chrome/Brave/Edge and "PNG" for Office/Photoshop)
         let png_fmt_names = ["image/png\0", "PNG\0"];
         for name in &png_fmt_names {
@@ -185,6 +217,7 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
                             let clean_bytes = slice.to_vec();
 
                             item = Some(ClipboardItem {
+                                pdf: None,
                                 text: None,
                                 image_png: Some(clean_bytes),
                                 source_app: source_app.clone(),
@@ -197,148 +230,20 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
             }
         }
 
-        // Priority 2: Check CF_DIBV5 (32-bit alpha direct pixel extraction) or standard CF_DIB
-        if item.is_none() && IsClipboardFormatAvailable(CF_DIBV5) != 0 {
-            let handle = GetClipboardData(CF_DIBV5);
-            if !handle.is_null() {
-                let ptr = GlobalLock(handle as HGLOBAL);
-                if !ptr.is_null() {
-                    let size = GlobalSize(handle as HGLOBAL);
-                    let header_min = std::mem::size_of::<BITMAPV5HEADER>();
-                    if size >= header_min {
-                        let v5 = &*(ptr as *const BITMAPV5HEADER);
-                        let bi_size = v5.bV5Size as usize;
-                        let width = v5.bV5Width;
-                        let height = v5.bV5Height;
-                        let bit_count = v5.bV5BitCount;
-
-                        if bit_count == 32
-                            && width > 0
-                            && height != 0
-                            && bi_size >= header_min
-                            && bi_size <= size
-                            && (width as u64) * (height.unsigned_abs() as u64) <= 32_000_000
-                        {
-                            let u_width = width as u32;
-                            let u_height = height.unsigned_abs();
-                            let pixel_data_len = (u_width as usize) * (u_height as usize) * 4;
-                            if size >= bi_size + pixel_data_len {
-                                let pixels = std::slice::from_raw_parts(
-                                    (ptr as *const u8).add(bi_size),
-                                    pixel_data_len,
-                                )
-                                .to_vec();
-                                let alpha_mask = v5.bV5AlphaMask;
-                                // Snapshot bytes, then release the global clipboard before
-                                // pixel conversion/PNG encoding. Other apps can paste/write now.
-                                GlobalUnlock(handle as HGLOBAL);
-                                CloseClipboard();
-                                let pixels_ptr = pixels.as_ptr();
-                                let is_bottom_up = height > 0;
-                                let mut rgba_img = image::RgbaImage::new(u_width, u_height);
-                                let mut has_non_zero_alpha = false;
-
-                                for y in 0..u_height {
-                                    let src_y = if is_bottom_up { u_height - 1 - y } else { y };
-                                    let row_offset = (src_y as usize) * (u_width as usize) * 4;
-                                    for x in 0..u_width {
-                                        let px_offset = row_offset + (x as usize) * 4;
-                                        let b = *pixels_ptr.add(px_offset);
-                                        let g = *pixels_ptr.add(px_offset + 1);
-                                        let r = *pixels_ptr.add(px_offset + 2);
-                                        let a = *pixels_ptr.add(px_offset + 3);
-                                        if a > 0 {
-                                            has_non_zero_alpha = true;
-                                        }
-                                        rgba_img.put_pixel(x, y, image::Rgba([r, g, b, a]));
-                                    }
-                                }
-
-                                // If legacy Windows producer left all alpha bytes as 0, make opaque
-                                if !has_non_zero_alpha && alpha_mask == 0 {
-                                    for pixel in rgba_img.pixels_mut() {
-                                        pixel[3] = 255;
-                                    }
-                                }
-
-                                let mut png_bytes = Vec::new();
-                                if rgba_img
-                                    .write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)
-                                    .is_ok()
-                                {
-                                    item = Some(ClipboardItem {
-                                        text: None,
-                                        image_png: Some(png_bytes),
-                                        source_app: source_app.clone(),
-                                        source_title: source_title.clone(),
-                                    });
-                                }
-                                return item;
-                            }
-                        }
-                    }
-                    GlobalUnlock(handle as HGLOBAL);
-                }
-            }
-        }
-
-        // Priority 2b: Check standard CF_DIB (40-byte BITMAPINFOHEADER BMP fallback)
-        if item.is_none() && IsClipboardFormatAvailable(CF_DIB) != 0 {
-            let handle = GetClipboardData(CF_DIB);
-            if !handle.is_null() {
-                let ptr = GlobalLock(handle as HGLOBAL);
-                if !ptr.is_null() {
-                    let size = GlobalSize(handle as HGLOBAL);
-                    let dib_slice = std::slice::from_raw_parts(
-                        ptr as *const u8,
-                        size.min(crate::storage::blob::MAX_ENCODED_IMAGE_BYTES),
-                    );
-
-                    if size >= std::mem::size_of::<BITMAPINFOHEADER>() {
-                        let header = &*(ptr as *const BITMAPINFOHEADER);
-                        let bi_size = header.biSize;
-                        let clr_used = header.biClrUsed;
-                        let bit_count = header.biBitCount;
-
-                        let palette_size = if clr_used > 0 {
-                            clr_used.saturating_mul(4) as usize
-                        } else if bit_count <= 8 {
-                            ((1 << bit_count) * 4) as usize
-                        } else {
-                            0
-                        };
-
-                        let off_bits = 14 + bi_size as usize + palette_size;
-                        let file_size = 14 + dib_slice.len();
-
-                        let mut bmp_bytes = Vec::with_capacity(file_size);
-                        bmp_bytes.extend_from_slice(b"BM");
-                        bmp_bytes.extend_from_slice(&(file_size as u32).to_le_bytes());
-                        bmp_bytes.extend_from_slice(&[0, 0, 0, 0]); // Reserved
-                        bmp_bytes.extend_from_slice(&(off_bits as u32).to_le_bytes());
-                        bmp_bytes.extend_from_slice(dib_slice);
-                        GlobalUnlock(handle as HGLOBAL);
-                        CloseClipboard();
-
-                        if let Ok(img) = crate::storage::blob::decode_image(&bmp_bytes) {
-                            let mut png_bytes = Vec::new();
-                            if img
-                                .write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)
-                                .is_ok()
-                            {
-                                item = Some(ClipboardItem {
-                                    text: None,
-                                    image_png: Some(png_bytes),
-                                    source_app: source_app.clone(),
-                                    source_title: source_title.clone(),
-                                });
-                            }
-                        }
-                        return item;
-                    }
-
-                    GlobalUnlock(handle as HGLOBAL);
-                }
+        // Snapshot a packed DIB, then release the global clipboard before decoding.
+        // Both header families use the same checked parser for mask/palette offsets.
+        if item.is_none() {
+            for format in [CF_DIBV5, CF_DIB] {
+                if IsClipboardFormatAvailable(format)==0 {continue;}
+                let handle=GetClipboardData(format) as HGLOBAL;
+                if handle.is_null(){continue;}
+                let size=GlobalSize(handle);
+                if size<40 || size>crate::storage::blob::MAX_ENCODED_IMAGE_BYTES {continue;}
+                let ptr=GlobalLock(handle);
+                if ptr.is_null(){continue;}
+                let bytes=std::slice::from_raw_parts(ptr as *const u8,size).to_vec();
+                GlobalUnlock(handle);CloseClipboard();
+                return super::dib::png(&bytes).ok().map(|image_png| ClipboardItem{pdf:None,text:None,image_png:Some(image_png),source_app,source_title});
             }
         }
 
@@ -362,6 +267,7 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
 
                     if !text.trim().is_empty() {
                         item = Some(ClipboardItem {
+                            pdf: None,
                             text: Some(text),
                             image_png: None,
                             source_app,
@@ -376,6 +282,30 @@ pub fn read_clipboard_content() -> Option<ClipboardItem> {
     }
 
     item
+}
+
+// Caller already holds the clipboard; all allocation sizes are checked before copying.
+unsafe fn read_registered_format(name: &str, limit: usize) -> Option<Vec<u8>> {
+    let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+    let format = RegisterClipboardFormatW(name.as_ptr());
+    if format == 0 || IsClipboardFormatAvailable(format) == 0 {
+        return None;
+    }
+    let handle = GetClipboardData(format) as HGLOBAL;
+    if handle.is_null() {
+        return None;
+    }
+    let size = GlobalSize(handle);
+    if size == 0 || size > limit {
+        return None;
+    }
+    let ptr = GlobalLock(handle);
+    if ptr.is_null() {
+        return None;
+    }
+    let bytes = std::slice::from_raw_parts(ptr as *const u8, size).to_vec();
+    GlobalUnlock(handle);
+    Some(bytes)
 }
 
 // A clipboard writer must own its HWND. Using the foreground application's
@@ -425,6 +355,47 @@ unsafe fn mark_own_clipboard() {
         if SetClipboardData(format, handle as HANDLE).is_null() {
             GlobalFree(handle);
         }
+    }
+}
+
+/// Publish an independently staged file for native file paste.
+pub fn set_clipboard_file(path: &std::path::Path) -> bool {
+    let wide: Vec<u16> = path
+        .as_os_str()
+        .to_string_lossy()
+        .encode_utf16()
+        .chain([0, 0])
+        .collect();
+    let mut bytes = vec![0u8; 20];
+    bytes[0..4].copy_from_slice(&20u32.to_le_bytes());
+    bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
+    for unit in wide {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    let owner = ClipboardOwner::new();
+    if owner.0.is_null() || !open_clipboard_with_retry(owner.0, 5) {
+        return false;
+    }
+    unsafe {
+        let handle = GlobalAlloc(GMEM_MOVEABLE, bytes.len());
+        let mut success = false;
+        if !handle.is_null() {
+            let ptr = GlobalLock(handle);
+            if !ptr.is_null() {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
+                GlobalUnlock(handle);
+                EmptyClipboard();
+                success = !SetClipboardData(CF_HDROP, handle as HANDLE).is_null();
+            }
+            if !success {
+                GlobalFree(handle);
+            }
+        }
+        if success {
+            mark_own_clipboard();
+        }
+        CloseClipboard();
+        success
     }
 }
 

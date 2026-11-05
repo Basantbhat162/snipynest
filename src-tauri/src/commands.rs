@@ -3,6 +3,7 @@ use base64::Engine;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::clipboard::win32::{set_clipboard_image, set_clipboard_text};
 use crate::storage::{Clip, ClipFilter, ClipType, StorageStats};
@@ -54,8 +55,15 @@ pub async fn undo_clip_batch(state: State<'_, AppState>, token: String) -> Resul
 }
 
 #[tauri::command]
-pub fn get_clips(state: State<'_, AppState>, filter: ClipFilter) -> Result<Vec<Clip>, String> {
-    state.db.query_clips(&filter).map_err(|e| e.to_string())
+pub async fn get_clips(state: State<'_, AppState>, filter: ClipFilter) -> Result<Vec<Clip>, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.query_clips(&filter).map_err(|e| e.to_string())).await.map_err(|e|e.to_string())?
+}
+
+#[tauri::command]
+pub async fn locate_clip_in_history(state: State<'_, AppState>, id: String, trash: bool) -> Result<Option<usize>, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.locate_clip(&id, trash).map_err(|e|e.to_string())).await.map_err(|e|e.to_string())?
 }
 
 #[tauri::command]
@@ -108,13 +116,46 @@ pub async fn get_clip_full_image(
 }
 
 #[tauri::command]
+pub async fn open_clip_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let clip = db
+            .get_clip(&id)
+            .map_err(|e| e.to_string())?
+            .ok_or("Capture no longer exists")?;
+        if clip.is_deleted || clip.clip_type != ClipType::File {
+            return Err("Only an available PDF capture can be opened".into());
+        }
+        // Open an independent staged copy: PDF applications must never edit the original blob.
+        let state = app.state::<AppState>();
+        let paths = state
+            .stager
+            .prepare_drag_files(&db, &[id])
+            .map_err(|e| e.to_string())?;
+        app.opener()
+            .open_path(paths[0].to_string_lossy().as_ref(), None::<&str>)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub fn get_clip_file_path(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Option<String>, String> {
     if let Some(clip) = state.db.get_clip(&id).map_err(|e| e.to_string())? {
-        if clip.clip_type == ClipType::Image {
-            let path = state.db.get_blob_store().get_blob_path(&clip.hash);
+        if matches!(clip.clip_type, ClipType::Image | ClipType::File) {
+            let path = if clip.clip_type == ClipType::File {
+                state.db.get_blob_store().get_pdf_path(&clip.hash)
+            } else {
+                state.db.get_blob_store().get_blob_path(&clip.hash)
+            };
             if path.exists() {
                 return Ok(Some(path.to_string_lossy().to_string()));
             }
@@ -149,8 +190,9 @@ pub fn empty_trash(state: State<'_, AppState>) -> Result<usize, String> {
 }
 
 #[tauri::command]
-pub fn get_storage_stats(state: State<'_, AppState>) -> Result<StorageStats, String> {
-    state.db.get_stats().map_err(|e| e.to_string())
+pub async fn get_storage_stats(state: State<'_, AppState>) -> Result<StorageStats, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.get_stats().map_err(|e|e.to_string())).await.map_err(|e|e.to_string())?
 }
 
 #[tauri::command]
@@ -159,9 +201,18 @@ pub async fn copy_clip_to_clipboard(
     id: String,
 ) -> Result<bool, String> {
     let db = state.db.clone();
+    let stager = state.stager.clone();
     tauri::async_runtime::spawn_blocking(move || {
         if let Some(clip) = db.get_clip(&id).map_err(|e| e.to_string())? {
             match clip.clip_type {
+                ClipType::File => {
+                    let paths = stager
+                        .prepare_drag_files(&db, &[clip.id])
+                        .map_err(|e| e.to_string())?;
+                    return Ok(crate::clipboard::set_clipboard_file(
+                        paths.first().ok_or("The PDF is missing")?,
+                    ));
+                }
                 ClipType::Image => {
                     let path = db.get_blob_store().get_blob_path(&clip.hash);
                     if path.exists() {
@@ -180,6 +231,15 @@ pub async fn copy_clip_to_clipboard(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn copy_selected_text(state:State<'_,AppState>, ids:Vec<String>)->Result<bool,String> {
+    let db=state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let text=crate::storage::selection::text_for_copy(&db,&ids)?;
+        Ok(set_clipboard_text(&text))
+    }).await.map_err(|e|e.to_string())?
 }
 
 #[tauri::command]
@@ -229,6 +289,31 @@ pub async fn save_annotated_image(
     .await
     .map_err(|e| e.to_string())??;
     let _ = app.emit("new-clip", &clip);
+    Ok(clip)
+}
+
+#[tauri::command]
+pub async fn save_image_pdf(app: AppHandle, window: WebviewWindow, state: State<'_, AppState>, data_base64: String) -> Result<Clip, String> {
+    let db = state.db.clone();
+    let arrivals = state.image_arrivals.clone();
+    let clip = tauri::async_runtime::spawn_blocking(move || {
+        if data_base64.len() > crate::storage::blob::MAX_ENCODED_IMAGE_BYTES * 4 / 3 + 128 {
+            return Err("Image payload exceeds the 64 MB limit".into());
+        }
+        let bytes = BASE64.decode(data_base64.split_once("base64,").map_or(data_base64.as_str(), |(_, value)| value)).map_err(|e| e.to_string())?;
+        let pdf = crate::image_pdf::from_png(&bytes)?;
+        let clip = db.insert_pdf(&pdf, Some(&bytes), Some("SnipyNest Annotator"), Some("Edited capture PDF")).map_err(|e| e.to_string())?;
+        arrivals.lock().should_notify(&clip.hash, None);
+        Ok::<_, String>(clip)
+    }).await.map_err(|e| e.to_string())??;
+    let _ = app.emit("new-clip", &clip);
+    if window.label() != "capture-overlay" {
+        let handle = app.clone();
+        let arrival = clip.clone();
+        app.run_on_main_thread(move || {
+            crate::window::image_arrived(&handle, &arrival, crate::window::active_monitor_work_area());
+        }).map_err(|e| e.to_string())?;
+    }
     Ok(clip)
 }
 
@@ -385,56 +470,7 @@ pub fn set_interaction_active(state: State<'_, AppState>, active: bool) {
 
 #[tauri::command]
 pub async fn capture_screen(app: AppHandle) -> Result<(), String> {
-    if app
-        .state::<AppState>()
-        .native_drag_active
-        .load(Ordering::Relaxed)
-    {
-        return Err("Finish the current drag before snipping".into());
-    }
-    let (send, receive) = std::sync::mpsc::channel();
-    let handle = app.clone();
-    app.run_on_main_thread(move || {
-        let result = (|| {
-            if let Some(window) = handle.get_webview_window("main") {
-                hide_history_window(&window)?;
-            }
-            if handle.get_webview_window("capture-pad").is_some() {
-                crate::window::hide_pad_native(&handle)?;
-            }
-            Ok::<(), String>(())
-        })();
-        let _ = send.send(result);
-    })
-    .map_err(|e| e.to_string())?;
-    tauri::async_runtime::spawn_blocking(move || receive.recv())
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|_| "Snip preparation did not complete")??;
-    tauri::async_runtime::spawn_blocking(|| {
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
-        for _ in 0..100 {
-            if unsafe {
-                GetAsyncKeyState(0x11) >= 0
-                    && GetAsyncKeyState(0x10) >= 0
-                    && GetAsyncKeyState(0x12) >= 0
-            } {
-                return Ok::<(), String>(());
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        Err("Release Ctrl, Shift and Alt before starting another snip".into())
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    if let Err(error) = crate::drag_drop::native::launch_screen_snip() {
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
-        return Err(error);
-    }
-    Ok(())
+    crate::region_capture::start(app).await
 }
 
 #[tauri::command]
@@ -452,6 +488,23 @@ pub async fn update_preferences(
         .map_err(|e| e.to_string())?
 }
 
+fn restore_single_keys(
+    app: &AppHandle,
+    state: &AppState,
+    current: &mut crate::preferences::Preferences,
+) {
+    if state
+        .single_keys
+        .apply(current.single_key_enabled, &current.single_key_bindings)
+        .is_err()
+    {
+        // A failed rollback must not leave newly assigned keys silently reserved.
+        let _ = state.single_keys.apply(false, &[]);
+        current.single_key_enabled = false;
+        let _ = state.db.save_preferences(current);
+        let _ = app.emit("preferences-changed", &*current);
+    }
+}
 fn update_preferences_inner(
     app: AppHandle,
     preferences: crate::preferences::Preferences,
@@ -459,6 +512,7 @@ fn update_preferences_inner(
     let state = app.state::<AppState>();
     preferences.validate()?;
     let mut current = state.preferences.write();
+    state.single_keys.cancel_recording();
     let bindings_changed = current.snip_shortcut != preferences.snip_shortcut
         || current.history_shortcut != preferences.history_shortcut
         || current.quick_capture_shortcut != preferences.quick_capture_shortcut;
@@ -471,8 +525,36 @@ fn update_preferences_inner(
             )?;
         }
     }
+    let keys_changed = current.single_key_enabled != preferences.single_key_enabled
+        || current.single_key_bindings != preferences.single_key_bindings
+        || state.single_keys.is_armed() != preferences.single_key_enabled;
+    if keys_changed {
+        if let Err(error) = state.single_keys.apply(
+            preferences.single_key_enabled,
+            &preferences.single_key_bindings,
+        ) {
+            if !state.single_keys.is_armed() && current.single_key_enabled {
+                current.single_key_enabled = false;
+                let _ = state.db.save_preferences(&current);
+                let _ = app.emit("preferences-changed", &*current);
+            }
+            if bindings_changed {
+                if let Some(listener) = state._listener.read().as_ref() {
+                    let _ = listener.update_shortcuts(
+                        current.snip_shortcut.clone(),
+                        current.history_shortcut.clone(),
+                        current.quick_capture_shortcut.clone(),
+                    );
+                }
+            }
+            return Err(error);
+        }
+    }
     if current.start_at_login != preferences.start_at_login {
         if let Err(error) = crate::preferences::set_start_at_login(preferences.start_at_login) {
+            if keys_changed {
+                restore_single_keys(&app, &state, &mut current);
+            }
             if bindings_changed {
                 if let Some(listener) = state._listener.read().as_ref() {
                     let _ = listener.update_shortcuts(
@@ -486,6 +568,9 @@ fn update_preferences_inner(
         }
     }
     if let Err(error) = state.db.save_preferences(&preferences) {
+        if keys_changed {
+            restore_single_keys(&app, &state, &mut current);
+        }
         if bindings_changed {
             if let Some(listener) = state._listener.read().as_ref() {
                 let _ = listener.update_shortcuts(

@@ -16,6 +16,13 @@ test("late query cannot overwrite a newer category or search", async () => {
   assert.equal(h.snapshot.clips[0].id, "new");
   assert.equal(h.snapshot.loading, false);
 });
+test("changing a filter clears stale actionable results before its debounced query",async()=>{
+ const pending=[];const h=new HistoryController(filter=>new Promise(resolve=>pending.push({filter,resolve})));
+ const first=h.load("all","",0);pending[0].resolve([clip("old")]);await first;
+ h.clear();assert.deepEqual(h.snapshot.clips,[]);assert.equal(h.snapshot.view,null);assert.equal(h.snapshot.loading,true);
+ const next=h.load("all","needle",1);pending[1].resolve([clip("target")]);await next;
+ assert.deepEqual(h.snapshot.view,{category:"all",search:"needle",page:1});
+});
 test("page size stays bounded and next-page detection uses one lookahead", async () => {
   let request;
   const h = new HistoryController(async (filter) => {

@@ -142,7 +142,10 @@ fn place_pad(pad: &WebviewWindow, area: super::MonitorBounds, preserve: bool) {
 }
 pub fn image_arrived(app: &AppHandle, clip: &crate::storage::Clip, monitor: super::MonitorBounds) {
     let state = app.state::<crate::AppState>();
-    if clip.clip_type != crate::storage::ClipType::Image {
+    if !matches!(
+        clip.clip_type,
+        crate::storage::ClipType::Image | crate::storage::ClipType::File
+    ) {
         return;
     }
     state.pad_unread.fetch_add(1, Ordering::Relaxed);
@@ -228,7 +231,18 @@ pub fn hide_pad_native(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 #[tauri::command]
-pub fn open_from_pad(app: AppHandle) -> Result<(), String> {
+pub fn open_from_pad(app: AppHandle, quick_crop_id: Option<String>) -> Result<(), String> {
+    if let Some(id) = quick_crop_id.as_ref() {
+        let clip = app
+            .state::<crate::AppState>()
+            .db
+            .get_clip(id)
+            .map_err(|e| e.to_string())?
+            .filter(|clip| !clip.is_deleted && clip.clip_type == crate::storage::ClipType::Image)
+            .ok_or("The image is no longer available for cropping")?;
+        app.emit("quick-crop-request", clip)
+            .map_err(|e| e.to_string())?;
+    }
     let _ = hide_pad_native(&app);
     app.state::<crate::AppState>()
         .pad_unread

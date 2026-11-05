@@ -5,8 +5,31 @@ use std::collections::VecDeque;
 #[derive(Default)]
 pub struct ImageArrivals {
     recent: VecDeque<String>,
+    previews: VecDeque<(String, Vec<u8>)>,
 }
 impl ImageArrivals {
+    /// Similarity affects feedback only: a rewritten image is still stored intact.
+    /// This prevents paste/dictation apps from replaying the Pad for the same screenshot.
+    pub fn should_notify_preview(&mut self, hash:&str, source:Option<&str>, thumbnail:Option<&str>) -> bool {
+        use base64::Engine;
+        let preview=thumbnail.filter(|value|value.len()<=512*1024)
+            .and_then(|value|value.strip_prefix("data:image/png;base64,"))
+            .and_then(|value|base64::engine::general_purpose::STANDARD.decode(value).ok())
+            .and_then(|bytes|crate::storage::blob::decode_image(&bytes).ok());
+        let fingerprint=preview.map(|image| {
+            let ratio=format!("{}x{}",image.width(),image.height());
+            (ratio,image.resize_exact(16,16,image::imageops::FilterType::Triangle).into_rgb8().into_raw())
+        });
+        let restored=fingerprint.as_ref().is_some_and(|(ratio,pixels)|self.previews.iter().any(|(size,previous)|{
+            size==ratio && pixels.iter().zip(previous).map(|(a,b)|a.abs_diff(*b) as usize).sum::<usize>()<=pixels.len()*2
+        }));
+        if let Some(fingerprint)=fingerprint {
+            if self.previews.len()>=16 {self.previews.pop_front();}
+            self.previews.push_back(fingerprint);
+        }
+        let explicit=source.is_some_and(|name|["SnippingTool.exe","ScreenClippingHost.exe","Lightshot.exe","prtscr.exe"].iter().any(|capture|name.eq_ignore_ascii_case(capture)));
+        (self.should_notify(hash,source) || explicit) && (!restored || explicit)
+    }
     pub fn should_notify(&mut self, hash: &str, source: Option<&str>) -> bool {
         let seen = self.recent.iter().any(|value| value == hash);
         self.recent.retain(|value| value != hash);
@@ -102,6 +125,23 @@ mod tests {
             arrivals.should_notify(&n.to_string(), None);
         }
         assert_eq!(arrivals.recent.len(), 64);
+    }
+    #[test]
+    fn recompressed_paste_restore_is_quiet_but_deliberate_capture_still_notifies() {
+        use base64::Engine;
+        let preview=|value|{
+            let image=image::RgbImage::from_pixel(50,30,image::Rgb([value,80,110]));
+            let mut bytes=std::io::Cursor::new(Vec::new());image.write_to(&mut bytes,image::ImageFormat::Png).unwrap();
+            format!("data:image/png;base64,{}",base64::engine::general_purpose::STANDARD.encode(bytes.get_ref()))
+        };
+        let mut arrivals=ImageArrivals::default();
+        assert!(arrivals.should_notify_preview("original",Some("Lightshot.exe"),Some(&preview(50))));
+        assert!(!arrivals.should_notify_preview("rewritten",Some("Notion.exe"),Some(&preview(51))));
+        assert!(arrivals.should_notify_preview("deliberate",Some("Lightshot.exe"),Some(&preview(51))));
+        assert!(arrivals.should_notify_preview("deliberate",Some("Lightshot.exe"),Some(&preview(51))));
+        assert!(arrivals.should_notify_preview("different",Some("Notion.exe"),Some(&preview(200))));
+        for i in 0..50 {arrivals.should_notify_preview(&i.to_string(),None,Some(&preview(i)));}
+        assert!(arrivals.previews.len()<=16);
     }
     #[test]
     fn duplicate_events_do_not_decode_again_and_timer_recovers_missed_events() {

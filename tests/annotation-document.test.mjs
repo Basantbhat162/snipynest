@@ -151,3 +151,14 @@ test("redo restores crop exactly and a new edit clears redo", () => {
   editor.redo(); assert.equal(editor.exportPng(), expected);
   editor.undo(); editor.commit(redact); assert.equal(editor.canRedo, false);
 });
+
+test("quick crop export leaves the document and undo history unchanged", () => {
+  const editor = new AnnotationDocument(image());
+  const original = editor.exportPng();
+  assert.deepEqual(JSON.parse(editor.exportPng(crop.crop)), {
+    width: 2, height: 2, pixels: ["p5", "p6", "p9", "p10"],
+  });
+  assert.equal(editor.exportPng(), original);
+  assert.equal(editor.canUndo, false);
+  assert.throws(() => editor.exportPng({x: 3, y: 0, width: 2, height: 1}), /crop/i);
+});

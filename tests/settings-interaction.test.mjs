@@ -11,6 +11,7 @@ function fixture(save) {
   const slots = [], effects = [];
   let cursor = 0, tree;
   const hooks = {
+    useRef(initial) { const index=cursor++;if(!(index in slots))slots[index]={current:initial};return slots[index]; },
     useState(initial) {
       const index = cursor++;
       if (!(index in slots)) slots[index] = initial;
@@ -31,6 +32,7 @@ function fixture(save) {
     "../lib/format": { formatBytes: String },
     "./Dialog": { Dialog: "dialog" },
     "./ThemeChoice": { ThemeChoice: "theme-choice" },
+    "./KeyboardSettings": { KeyboardSettings: "keyboard-settings" },
   };
   const exports = {};
   new Function("require", "exports", compiled)(name => {

@@ -12,7 +12,7 @@ env['CARGO_TARGET_DIR'] = str(target)
 flags = []
 # Cargo encoded flags preserve spaces in checkout and user paths.
 for source, replacement in [(str(root), '/snipynest'), (str(Path.home()), '/builder')]:
-    for spelling in {source, source.replace(chr(92), '/'), source.replace('/', chr(92))}:
+    for spelling in sorted({source, source.replace(chr(92), '/'), source.replace('/', chr(92))}):
         flags.extend(['--remap-path-prefix', spelling + '=' + replacement])
 env.pop('RUSTFLAGS', None)
 env['CARGO_ENCODED_RUSTFLAGS'] = '\x1f'.join(flags)

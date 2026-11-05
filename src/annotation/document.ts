@@ -10,6 +10,7 @@ export type AnnotationTool =
   | "pen"
   | "highlight"
   | "arrow"
+  | "line"
   | "rect"
   | "ellipse"
   | "redact"
@@ -78,6 +79,7 @@ export function drawAnnotation(
       );
       ctx.stroke();
       break;
+    case "line":
     case "arrow": {
       const angle = Math.atan2(end.y - start.y, end.x - start.x);
       const head = Math.min(
@@ -88,6 +90,7 @@ export function drawAnnotation(
       ctx.moveTo(start.x, start.y);
       ctx.lineTo(end.x, end.y);
       ctx.stroke();
+      if (action.tool === "line") break;
       ctx.beginPath();
       ctx.moveTo(end.x, end.y);
       ctx.lineTo(
@@ -213,8 +216,18 @@ export class AnnotationDocument {
     const action = this.undone.pop();
     if (action) { this.actions.push(action); applyAction(this.canvas, action); }
   }
-  exportPng() {
-    return this.canvas.toDataURL("image/png");
+  exportPng(crop?: Rectangle | null) {
+    if (!crop) return this.canvas.toDataURL("image/png");
+    const {x, y, width, height} = crop;
+    if (![x,y,width,height].every(Number.isInteger) || x < 0 || y < 0 || width < 1 || height < 1 || x + width > this.canvas.width || y + height > this.canvas.height)
+      throw new Error("The crop is outside the image.");
+    const output = document.createElement("canvas");
+    try {
+      output.width = width; output.height = height;
+      const pixels = this.canvas.getContext("2d")!.getImageData(x, y, width, height);
+      output.getContext("2d")!.putImageData(pixels, 0, 0);
+      return output.toDataURL("image/png");
+    } finally { output.width = output.height = 0; }
   }
   dispose() {
     this.canvas.width =

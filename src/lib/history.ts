@@ -7,6 +7,7 @@ export interface HistorySnapshot {
   loading: boolean;
   error: string | null;
   hasNext: boolean;
+  view: {category:HistoryCategory;search:string;page:number} | null;
 }
 /** One bounded page; only the newest request may publish results. */
 export class HistoryController {
@@ -15,6 +16,7 @@ export class HistoryController {
     loading: false,
     error: null,
     hasNext: false,
+    view: null,
   };
   private revision = 0;
   private listeners = new Set<() => void>();
@@ -36,6 +38,10 @@ export class HistoryController {
   invalidate() {
     this.revision++;
   }
+  clear() {
+    this.invalidate();
+    this.publish({clips:[],loading:true,error:null,hasNext:false,view:null});
+  }
   async load(
     category: HistoryCategory,
     search: string,
@@ -48,6 +54,7 @@ export class HistoryController {
       clips: refresh ? this.snapshot.clips : [],
       loading: true,
       error: null,
+      view: null,
     });
     const filter: ClipFilter = {
       search: search.trim() || undefined,
@@ -67,6 +74,7 @@ export class HistoryController {
         hasNext: clips.length > PAGE_SIZE,
         loading: false,
         error: null,
+        view: {category,search,page},
       });
     } catch (error) {
       if (revision !== this.revision) return;
@@ -75,6 +83,7 @@ export class HistoryController {
         loading: false,
         hasNext: false,
         error: error instanceof Error ? error.message : String(error),
+        view: {category,search,page},
       });
     }
   }

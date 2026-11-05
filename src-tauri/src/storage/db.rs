@@ -53,7 +53,11 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_clips_type ON clips(clip_type);
             CREATE INDEX IF NOT EXISTS idx_clips_pinned ON clips(is_pinned);
             CREATE INDEX IF NOT EXISTS idx_clips_deleted ON clips(is_deleted);
+            CREATE INDEX IF NOT EXISTS idx_clips_history_order ON clips(is_deleted, is_pinned DESC, created_at DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_clips_capture_order ON clips(is_deleted, created_at DESC, id DESC);
              CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS image_aliases (original_hash TEXT PRIMARY KEY, normalized_hash TEXT NOT NULL);
+             CREATE INDEX IF NOT EXISTS idx_image_aliases_normalized ON image_aliases(normalized_hash);
 
             -- Full Text Search table for text clips
             CREATE VIRTUAL TABLE IF NOT EXISTS clips_fts USING fts5(
@@ -168,6 +172,18 @@ impl Database {
         source_app: Option<&str>,
         source_title: Option<&str>,
     ) -> Result<Clip> {
+        // Exact clipboard restores need no PNG encode, thumbnail or blob write.
+        let input_hash=BlobStore::compute_hash(bytes);
+        let existing={
+            let conn=self.conn.lock();
+            conn.query_row("SELECT id FROM clips WHERE clip_type='image' AND is_deleted=0 AND (hash=?1 OR hash IN (SELECT normalized_hash FROM image_aliases WHERE original_hash=?1)) ORDER BY created_at DESC LIMIT 1",params![input_hash],|row|row.get::<_,String>(0)).optional()?
+        };
+        if let Some(id)=existing {
+            if self.get_clip(&id)?.is_some_and(|clip|!clip.is_deleted && clip.file_path.is_some()) &&
+                self.conn.lock().execute("UPDATE clips SET created_at=?1,source_app=?2,source_title=?3 WHERE id=?4 AND is_deleted=0",params![Utc::now().to_rfc3339(),source_app,source_title,id])?==1 {
+                return self.get_clip(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows);
+            }
+        }
         let (hash, dimensions, thumbnail) = self
             .blob_store
             .save_image(bytes)
@@ -175,15 +191,46 @@ impl Database {
 
         let conn = self.conn.lock();
 
-        // Check if identical active image clip exists
-        let existing: Option<String> = conn
+        // Old image blobs retain their original hash/path. Remember normalized
+        // identities separately rather than rewriting originals or deleting history.
+        let mut existing: Option<String> = conn
             .query_row(
-                "SELECT id FROM clips WHERE hash = ?1 AND is_deleted = 0 ORDER BY created_at DESC LIMIT 1",
+                "SELECT id FROM clips WHERE clip_type='image' AND is_deleted=0 AND (hash=?1 OR hash IN (SELECT original_hash FROM image_aliases WHERE normalized_hash=?1)) ORDER BY created_at DESC LIMIT 1",
                 params![hash],
                 |row| row.get(0),
             )
             .ok();
 
+        // Never hold the history connection while reading/decoding legacy blobs.
+        drop(conn);
+        if existing.is_none() {
+            let candidates = {
+                let conn=self.conn.lock();
+                let mut query = conn.prepare("SELECT id,hash FROM clips WHERE clip_type='image' AND is_deleted=0 AND dimensions=?1 AND hash NOT IN (SELECT original_hash FROM image_aliases) ORDER BY created_at DESC LIMIT 64")?;
+                let rows = query.query_map(params![dimensions], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?)))?;
+                rows.collect::<Result<Vec<_>>>()?
+            };
+            for (id, original_hash) in candidates {
+                let normalized = std::fs::read(self.blob_store.get_blob_path(&original_hash)).ok().and_then(|bytes| {
+                    let image = super::blob::decode_image(&bytes).ok()?.into_rgba8();
+                    let mut png = std::io::Cursor::new(Vec::new());
+                    image.write_to(&mut png, image::ImageFormat::Png).ok()?;
+                    Some(BlobStore::compute_hash(png.get_ref()))
+                });
+                if let Some(normalized) = normalized {
+                    self.conn.lock().execute("INSERT OR REPLACE INTO image_aliases VALUES (?1,?2)", params![original_hash, normalized])?;
+                    if normalized == hash { existing = Some(id); break; }
+                }
+            }
+        }
+
+        let conn=self.conn.lock();
+        if let Some(id)=existing.as_ref() {
+            if !conn.query_row("SELECT EXISTS(SELECT 1 FROM clips WHERE id=?1 AND is_deleted=0)",params![id],|row|row.get::<_,bool>(0))? {existing=None;}
+        }
+        if input_hash!=hash {conn.execute("INSERT OR REPLACE INTO image_aliases VALUES (?1,?2)",params![input_hash,hash])?;}
+        // An editor can save concurrently with clipboard ingestion.
+        if existing.is_none() {existing=conn.query_row("SELECT id FROM clips WHERE clip_type='image' AND is_deleted=0 AND hash=?1 ORDER BY created_at DESC LIMIT 1",params![hash],|row|row.get(0)).optional()?;}
         let now = Utc::now().to_rfc3339();
 
         if let Some(existing_id) = existing {
@@ -248,6 +295,53 @@ impl Database {
         })
     }
 
+    /// Store PDFs from the explicit Companion clipboard format, never filesystem paths.
+    pub fn insert_pdf(
+        &self,
+        bytes: &[u8],
+        preview: Option<&[u8]>,
+        source_app: Option<&str>,
+        source_title: Option<&str>,
+    ) -> Result<Clip> {
+        use base64::Engine;
+        let thumbnail = preview.and_then(|png| {
+            let image = super::blob::decode_image(png).ok()?.thumbnail(384, 384);
+            let mut output = std::io::Cursor::new(Vec::new());
+            image.write_to(&mut output, image::ImageFormat::Png).ok()?;
+            Some(format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(output.into_inner())
+            ))
+        });
+        let hash = self
+            .blob_store
+            .save_pdf(bytes)
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+        let conn = self.conn.lock();
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT id FROM clips WHERE hash=?1 AND clip_type='file' AND is_deleted=0 LIMIT 1",
+                params![hash],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let id = existing
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
+        let now = Utc::now().to_rfc3339();
+        if existing.is_some() {
+            conn.execute(
+                "UPDATE clips SET created_at=?1, source_app=?2, source_title=?3 WHERE id=?4",
+                params![now, source_app, source_title, id],
+            )?;
+        } else {
+            conn.execute("INSERT INTO clips (id,hash,clip_type,text_content,byte_size,source_app,source_title,created_at,thumbnail) VALUES (?1,?2,'file','Webpage.pdf',?3,?4,?5,?6,?7)", params![id, hash, bytes.len(), source_app, source_title, now, thumbnail])?;
+        }
+        drop(conn);
+        self.get_clip(&id)?
+            .ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
     /// Query clips with search and filters
     pub fn query_clips(&self, filter: &ClipFilter) -> Result<Vec<Clip>> {
         let conn = self.conn.lock();
@@ -257,7 +351,9 @@ impl Database {
         let offset = filter.offset.unwrap_or(0);
 
         let clip_type = filter.clip_type.as_deref().filter(|t| *t != "all");
-        if clip_type.is_some_and(|t| !matches!(t, "text" | "image" | "link" | "code" | "file")) {
+        if clip_type
+            .is_some_and(|t| !matches!(t, "text" | "image" | "link" | "code" | "file" | "capture"))
+        {
             return Err(rusqlite::Error::InvalidQuery);
         }
         let search = filter
@@ -265,17 +361,18 @@ impl Database {
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty());
-        let query = String::from(
+        let order = if clip_type == Some("capture") { "created_at DESC, id DESC" } else { "is_pinned DESC, created_at DESC, id DESC" };
+        let query = format!(
             "SELECT id, hash, clip_type, substr(text_content, 1, 4096), char_count, byte_size,
                     dimensions, source_app, source_title, created_at, is_pinned,
                     is_deleted, deleted_at, thumbnail
              FROM clips WHERE is_deleted = ?1
-                AND (?2 IS NULL OR clip_type = ?2)
+                AND (?2 IS NULL OR clip_type = ?2 OR (?2 = 'capture' AND clip_type IN ('image','file')))
                 AND (?3 = 0 OR is_pinned = 1)
                 AND (?4 IS NULL OR instr(lower(COALESCE(text_content, '')), lower(?4)) > 0
                     OR instr(lower(COALESCE(source_app, '')), lower(?4)) > 0
                     OR instr(lower(COALESCE(source_title, '')), lower(?4)) > 0)
-             ORDER BY is_pinned DESC, created_at DESC, id DESC LIMIT ?5 OFFSET ?6",
+             ORDER BY {order} LIMIT ?5 OFFSET ?6",
         );
 
         let mut stmt = conn.prepare(&query)?;
@@ -292,8 +389,12 @@ impl Database {
                 let clip_type_str: String = row.get(2)?;
                 let clip_type = ClipType::from_str(&clip_type_str);
                 let hash: String = row.get(1)?;
-                let file_path = if clip_type == ClipType::Image {
-                    let p = self.blob_store.get_blob_path(&hash);
+                let file_path = if matches!(clip_type, ClipType::Image | ClipType::File) {
+                    let p = if clip_type == ClipType::File {
+                        self.blob_store.get_pdf_path(&hash)
+                    } else {
+                        self.blob_store.get_blob_path(&hash)
+                    };
                     if p.exists() {
                         Some(p.to_string_lossy().to_string())
                     } else {
@@ -331,6 +432,18 @@ impl Database {
         Ok(clips)
     }
 
+    /// Position in the unfiltered History order, without loading preceding payloads.
+    pub fn locate_clip(&self, id: &str, trash: bool) -> Result<Option<usize>> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT (SELECT COUNT(*) FROM clips c WHERE c.is_deleted=t.is_deleted AND
+             (c.is_pinned>t.is_pinned OR (c.is_pinned=t.is_pinned AND
+             (c.created_at>t.created_at OR (c.created_at=t.created_at AND c.id>t.id)))))
+             FROM clips t WHERE t.id=?1 AND t.is_deleted=?2",
+            params![id, trash], |row| row.get(0),
+        ).optional()
+    }
+
     /// Retrieve a single clip by ID
     pub fn get_clip(&self, id: &str) -> Result<Option<Clip>> {
         let conn = self.conn.lock();
@@ -346,8 +459,12 @@ impl Database {
                 let clip_type_str: String = row.get(2)?;
                 let clip_type = ClipType::from_str(&clip_type_str);
                 let hash: String = row.get(1)?;
-                let file_path = if clip_type == ClipType::Image {
-                    let p = self.blob_store.get_blob_path(&hash);
+                let file_path = if matches!(clip_type, ClipType::Image | ClipType::File) {
+                    let p = if clip_type == ClipType::File {
+                        self.blob_store.get_pdf_path(&hash)
+                    } else {
+                        self.blob_store.get_blob_path(&hash)
+                    };
                     if p.exists() {
                         Some(p.to_string_lossy().to_string())
                     } else {
@@ -660,6 +777,48 @@ mod tests {
     }
 
     #[test]
+    fn pdf_capture_survives_query_drag_dedup_and_trash_without_sharing_originals() {
+        let dir = test_directory();
+        let db = Database::new(&dir.join("test.db"), &dir.join("blobs")).unwrap();
+        let bytes = b"%PDF-1.4\nsynthetic document\n%%EOF\n";
+        assert!(db.insert_pdf(b"invalid", None, None, None).is_err());
+        let pdf = db.insert_pdf(bytes, None, Some("Companion"), None).unwrap();
+        assert_eq!(pdf.clip_type, ClipType::File);
+        let original = pdf.file_path.clone().unwrap();
+        assert_eq!(std::fs::read(&original).unwrap(), bytes);
+        assert_eq!(db.insert_pdf(bytes, None, None, None).unwrap().id, pdf.id);
+        db.insert_text("pinned", ClipType::Text, None, None)
+            .map(|c| db.toggle_pin(&c.id).unwrap())
+            .unwrap();
+        let clips = db
+            .query_clips(&ClipFilter {
+                clip_type: Some("capture".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(clips.len(), 1);
+        assert_eq!(clips[0].file_path.as_deref(), Some(original.as_str()));
+        let stager = crate::drag_drop::DragDropStager::new(dir.join("stage"));
+        let (paths, text) = stager
+            .prepare_native_selection(&db, &[pdf.id.clone()])
+            .unwrap();
+        assert!(text.is_none());
+        assert_eq!(paths[0].extension().unwrap(), "pdf");
+        assert_eq!(std::fs::read(&paths[0]).unwrap(), bytes);
+        std::fs::write(&paths[0], b"external edit").unwrap();
+        assert_eq!(std::fs::read(&original).unwrap(), bytes);
+        assert!(crate::drag_drop::native::prepare_payload(&paths, None).is_ok());
+        db.move_to_trash(&pdf.id).unwrap();
+        assert!(stager
+            .prepare_native_selection(&db, &[pdf.id.clone()])
+            .is_err());
+        db.delete_permanently(&pdf.id).unwrap();
+        assert!(!std::path::Path::new(&original).exists());
+        drop(db);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn preferences_survive_restart_and_reject_invalid_retention() {
         let dir = test_directory();
         let db = Database::new(&dir.join("test.db"), &dir.join("blobs")).unwrap();
@@ -683,6 +842,27 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[test]
+    fn locating_a_search_result_matches_history_order_across_pages_pins_and_trash() {
+        let dir=test_directory();
+        let db=Database::new(&dir.join("test.db"),&dir.join("blobs")).unwrap();
+        for i in 0..205 {
+            let clip=db.insert_text(&format!("Synthetic clip {i}"),ClipType::Text,None,None).unwrap();
+            db.conn.lock().execute("UPDATE clips SET created_at='2026-01-01T00:00:00Z' WHERE id=?1",params![clip.id]).unwrap();
+            if i%31==0 {db.toggle_pin(&clip.id).unwrap();}
+            if i%17==0 {db.move_to_trash(&clip.id).unwrap();}
+        }
+        for trash in [false,true] {
+            let mut all=db.query_clips(&ClipFilter{trash_only:Some(trash),limit:Some(200),..Default::default()}).unwrap();
+            all.extend(db.query_clips(&ClipFilter{trash_only:Some(trash),limit:Some(200),offset:Some(200),..Default::default()}).unwrap());
+            for (index,clip) in all.iter().enumerate(){
+                assert_eq!(db.locate_clip(&clip.id,trash).unwrap(),Some(index));
+                assert_eq!(db.locate_clip(&clip.id,!trash).unwrap(),None);
+            }
+        }
+        assert_eq!(db.locate_clip("missing",false).unwrap(),None);
+        drop(db);std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn text_preserves_whitespace_and_searches_literal_punctuation() {
         let dir = test_directory();
@@ -768,6 +948,52 @@ mod tests {
         let is_unpinned = db.toggle_pin(&clip.id).unwrap();
         assert!(!is_unpinned);
 
+        drop(db);
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn identical_rgb_and_rgba_clipboard_images_share_one_clip() {
+        use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
+        use std::io::Cursor;
+        let temp_dir = test_directory();
+        let db = Database::new(&temp_dir.join("test.db"), &temp_dir.join("blobs")).unwrap();
+        let image = DynamicImage::ImageRgb8(RgbImage::from_pixel(37, 23, Rgb([19, 71, 203])));
+        let mut rgb = Cursor::new(Vec::new());
+        let mut rgba = Cursor::new(Vec::new());
+        image.write_to(&mut rgb, ImageFormat::Png).unwrap();
+        DynamicImage::ImageRgba8(image.to_rgba8()).write_to(&mut rgba, ImageFormat::Png).unwrap();
+        assert_ne!(rgb.get_ref(), rgba.get_ref());
+        let first = db.insert_image(rgb.get_ref(), Some("Lightshot.exe"), None).unwrap();
+        let second = db.insert_image(rgba.get_ref(), Some("WindowsTerminal.exe"), None).unwrap();
+        assert_eq!(first.id, second.id, "a terminal clipboard rewrite must not duplicate identical pixels");
+        assert_eq!(db.query_clips(&ClipFilter::default()).unwrap().len(), 1);
+        drop(db);
+        std::fs::remove_dir_all(temp_dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_rgb_original_is_reused_without_rewriting_its_blob_or_id() {
+        use image::{DynamicImage, ImageFormat, Rgb, RgbImage};
+        use std::io::Cursor;
+        let temp_dir = test_directory();
+        let db = Database::new(&temp_dir.join("test.db"), &temp_dir.join("blobs")).unwrap();
+        let image = DynamicImage::ImageRgb8(RgbImage::from_pixel(37, 23, Rgb([11, 43, 91])));
+        let mut rgb = Cursor::new(Vec::new());
+        image.write_to(&mut rgb, ImageFormat::Png).unwrap();
+        let first = db.insert_image(rgb.get_ref(), Some("Lightshot.exe"), None).unwrap();
+        // Seed the pre-normalization representation used by existing installations.
+        let legacy_hash = BlobStore::compute_hash(rgb.get_ref());
+        let original = db.blob_store.get_blob_path(&legacy_hash);
+        std::fs::write(&original, rgb.get_ref()).unwrap();
+        db.conn.lock().execute("UPDATE clips SET hash=?1 WHERE id=?2", params![legacy_hash, first.id]).unwrap();
+        let mut rgba = Cursor::new(Vec::new());
+        DynamicImage::ImageRgba8(image.to_rgba8()).write_to(&mut rgba, ImageFormat::Png).unwrap();
+        let second = db.insert_image(rgba.get_ref(), Some("WindowsTerminal.exe"), None).unwrap();
+        assert_eq!(first.id, second.id);
+        assert_eq!(legacy_hash, second.hash);
+        assert_eq!(std::fs::read(original).unwrap(), *rgb.get_ref());
+        assert_eq!(db.query_clips(&ClipFilter::default()).unwrap().len(), 1);
         drop(db);
         std::fs::remove_dir_all(temp_dir).unwrap();
     }

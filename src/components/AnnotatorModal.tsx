@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { readDraft, saveDraft, discardDraft } from "../annotation/drafts";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  Maximize2, Minimize2, Expand, Redo2,
+  Maximize2, Minimize2, Expand, Redo2, FileDown, Minus,
   ArrowRight,
   Check,
   Circle,
@@ -31,8 +31,12 @@ import type { CropEdge } from "../annotation/crop";
 import { boundedRectangle, imagePoint } from "../annotation/geometry";
 import type { Rectangle } from "../annotation/geometry";
 import "./Annotator.css";
+import {RegionToolbar} from "./RegionToolbar";
+import {captureScreen} from "../annotation/region-layout";
 
 interface AnnotatorModalProps {
+  regionCapture?: {id: string; image: string; screens?: Rectangle[]};
+  quickCrop?: boolean;
   clip: Clip | null;
   onClose: () => void;
   onSave: (dataBase64: string, originalId?: string) => Promise<void>;
@@ -42,6 +46,7 @@ const tools = [
   { id: "crop", label: "Crop", icon: Crop },
   { id: "pen", label: "Pen", icon: Pen },
   { id: "arrow", label: "Arrow", icon: ArrowRight },
+  { id: "line", label: "Line", icon: Minus },
   { id: "rect", label: "Box", icon: Square },
   { id: "ellipse", label: "Ellipse", icon: Circle },
   { id: "highlight", label: "Highlight", icon: Highlighter },
@@ -62,6 +67,8 @@ const messageOf = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
 export function AnnotatorModal({
+  regionCapture,
+  quickCrop = false,
   clip,
   onClose,
   onSave,
@@ -77,7 +84,11 @@ export function AnnotatorModal({
     try { await invoke("set_editor_mode", { mode: next }); setMode(next); }
     catch(e) { setError(messageOf(e)); }
   };
-  const finishClose = async () => { await invoke("set_editor_mode", { mode: "inline" }); onClose(); };
+  const finishClose = async () => {
+    if (regionCapture) await invoke("cancel_region_capture", {id: regionCapture.id});
+    else await invoke("set_editor_mode", { mode: "inline" });
+    onClose();
+  };
   const previewRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -104,12 +115,14 @@ export function AnnotatorModal({
   // null means Fit; otherwise zoom is absolute image scale and survives host resizing.
   const [zoom, setZoom] = useState<number | null>(null);
   const [viewport, setViewport] = useState({ width: 1, height: 1 });
+  const [regionBounds, setRegionBounds] = useState<Rectangle | null>(null);
+  const [contextMenu, setContextMenu] = useState<{x:number;y:number} | null>(null);
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
-  const [busy, setBusy] = useState<"copy" | "save" | null>(null);
+  const [busy, setBusy] = useState<"copy" | "save" | "pdf" | null>(null);
   const busyRef = useRef(false);
   const [drawing, setDrawing] = useState(false);
   const image = documentRef.current?.canvas;
@@ -117,8 +130,8 @@ export function AnnotatorModal({
   const fit = image
     ? Math.min(
         1,
-        Math.max(1, viewport.width - 32) / image.width,
-        Math.max(1, viewport.height - 32) / image.height,
+        Math.max(1, viewport.width - (regionCapture ? 0 : 32)) / image.width,
+        Math.max(1, viewport.height - (regionCapture ? 0 : 32)) / image.height,
       )
     : 1;
   const scale = zoom ?? fit;
@@ -127,6 +140,41 @@ export function AnnotatorModal({
   const displayHeight = Math.max(1, Math.round((image?.height ?? 1) * scale));
   const previewWidth = Math.min(displayWidth, Math.max(1, viewport.width));
   const previewHeight = Math.min(displayHeight, Math.max(1, viewport.height));
+  // Physical display locations stay fixed while the image itself zooms or pans.
+  const captureScreens=regionCapture?.screens?.map(screen=>({x:screen.x*fit,y:screen.y*fit,width:screen.width*fit,height:screen.height*fit}));
+
+  const updateRegionBounds = () => {
+    if (!regionCapture || !crop || !containerRef.current) {setRegionBounds(null);return;}
+    const bounds = containerRef.current.getBoundingClientRect();
+    const next = {x:bounds.left+crop.x*scale,y:bounds.top+crop.y*scale,width:crop.width*scale,height:crop.height*scale};
+    setRegionBounds(previous => previous && Object.keys(next).every(key => previous[key as keyof Rectangle] === next[key as keyof Rectangle]) ? previous : next);
+  };
+  useLayoutEffect(updateRegionBounds, [crop, scale, viewport, regionCapture?.id]);
+
+  const selectTool = (id: AnnotationTool) => {
+    setTool(id);
+    if (quickCrop) {
+      if (id === "crop" && !crop && image) setCrop(initialCrop(image.width, image.height, aspect));
+    } else setCrop(id === "crop" && image ? initialCrop(image.width, image.height, aspect) : null);
+    if (id === "crop") setCropMode("adjust");
+    setStatus("");
+  };
+
+  const changeZoom = (direction: number) => {
+    if (!image || busyRef.current || gestureRef.current || cropDrag.current || closePrompt) return;
+    setZoom(value => Math.min(maxZoom, Math.max(fit, (value ?? fit) * (direction > 0 ? 1.5 : 1 / 1.5))));
+  };
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const wheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      if (event.deltaY) changeZoom(event.deltaY < 0 ? 1 : -1);
+    };
+    stage.addEventListener("wheel", wheel, {passive: false});
+    return () => stage.removeEventListener("wheel", wheel);
+  });
 
   useEffect(() => {
     if (!clip) return;
@@ -138,7 +186,7 @@ export function AnnotatorModal({
     closingRef.current = false;
     setTool("crop");
     setAspect(0);
-    setCropMode("adjust");
+    setCropMode(regionCapture ? "draw" : "adjust");
     setLoading(true);
     setRevision(0);
     setError("");
@@ -148,14 +196,14 @@ export function AnnotatorModal({
     setDrawing(false);
     const load = async () => {
       try {
-        const draft = await readDraft();
+        const draft = quickCrop ? null : await readDraft();
         if (draft?.clip.id === clip.id) {
           const restored = await AnnotationDocument.restore(draft.document);
           if (!active) { restored.dispose(); return; }
           documentRef.current = restored; setCrop(draft.crop); setTool(draft.tool as AnnotationTool); setColor(draft.color); setWidth(draft.width); setText(draft.text);
           setStatus("Recovered your unfinished edit."); setRevision(2); return;
         }
-        const source = await invoke<string | null>("get_clip_full_image", {
+        const source = regionCapture?.image ?? await invoke<string | null>("get_clip_full_image", {
           id: clip.id,
         });
         if (!active) return;
@@ -179,7 +227,7 @@ export function AnnotatorModal({
           return;
         }
         documentRef.current = new AnnotationDocument(loadedImage);
-        setCrop(initialCrop(loadedImage.width, loadedImage.height));
+        setCrop(regionCapture ? null : initialCrop(loadedImage.width, loadedImage.height));
         loadedImage.src = "";
         setRevision((value) => value + 1);
       } catch (loadError) {
@@ -195,6 +243,13 @@ export function AnnotatorModal({
       documentRef.current = null;
     };
   }, [clip?.id, loadAttempt]);
+
+  useEffect(() => {
+    if (regionCapture && image && !loading) {
+      const frame = requestAnimationFrame(() => { void invoke("show_region_capture", {id: regionCapture.id}).catch(error => setError(messageOf(error))); });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [regionCapture?.id, loading]);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
@@ -269,7 +324,7 @@ export function AnnotatorModal({
     if (busyRef.current || gestureRef.current || !documentRef.current?.canUndo)
       return;
     documentRef.current.undo();
-    setCrop(null);
+    if (!quickCrop) setCrop(null);
     setStatus("");
     setRevision((value) => value + 1);
   };
@@ -345,7 +400,7 @@ export function AnnotatorModal({
   };
   const close = () => {
     if (busyRef.current || cropDrag.current) return;
-    if (revision > 1 || cropChanged || text) setClosePrompt(true);
+    if (!quickCrop && (revision > 1 || cropChanged || text)) setClosePrompt(true);
     else void finishClose().catch(e => setError(messageOf(e)));
   };
   const keepDraft = async () => {
@@ -357,7 +412,7 @@ export function AnnotatorModal({
   };
   useEffect(() => { const subscription = listen("editor-close-request", close); return () => { void subscription.then(f=>f()); }; });
   useEffect(() => {
-    if (loading || (revision <= 1 && !cropChanged && !text) || !clip || !documentRef.current) return;
+    if (quickCrop || loading || (revision <= 1 && !cropChanged && !text) || !clip || !documentRef.current) return;
     const timer = setTimeout(() => { if (!closingRef.current && !gestureRef.current && !cropDrag.current && !busyRef.current && documentRef.current) void saveDraft({clip, savedAt:Date.now(),document:documentRef.current.snapshot(),crop,tool,color,width,text}).catch(e=>setError("Draft recovery unavailable: "+messageOf(e))); }, 900);
     return () => clearTimeout(timer);
   }, [revision, crop, tool, color, width, text, loading]);
@@ -370,6 +425,7 @@ export function AnnotatorModal({
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (event.target instanceof HTMLElement && event.target.closest("[data-region-popover],[data-region-context]")) return;
         event.preventDefault();
         event.stopImmediatePropagation();
         if (busyRef.current) return;
@@ -379,9 +435,11 @@ export function AnnotatorModal({
           return;
         }
         if (gestureRef.current) {
+          const wasCrop = gestureRef.current.action.tool === "crop";
           cancelGesture();
-          setCrop(null);
-        } else if (crop) setCrop(null);
+          if (wasCrop) setCrop(null);
+        } else if (quickCrop) close();
+        else if (crop) setCrop(null);
         else if (mode === "fullscreen") void switchMode("window");
         else close();
       }
@@ -399,10 +457,16 @@ export function AnnotatorModal({
         if(event.shiftKey) { documentRef.current?.redo(); setRevision(v=>v+1); } else undo();
       }
       if (!editing && event.code === "Space") { spaceHeld.current = true; event.preventDefault(); }
-      if (event.key === "F11") { event.preventDefault(); void switchMode(mode === "fullscreen" ? "window" : "fullscreen"); }
+      if (event.key === "F11") { event.preventDefault(); if (!regionCapture) void switchMode(mode === "fullscreen" ? "window" : "fullscreen"); }
       if (!editing && event.ctrlKey && event.key === "s") { event.preventDefault(); void exportImage("save"); }
+      if (!editing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") { event.preventDefault(); event.stopImmediatePropagation(); void exportImage("pdf"); }
+      if (!editing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") { event.preventDefault(); event.stopImmediatePropagation(); void exportImage("copy"); }
       if (!editing && event.ctrlKey && ["0","1"].includes(event.key) && !busyRef.current && !gestureRef.current && !cropDrag.current && !closePrompt) { event.preventDefault(); setZoom(event.key === "0" ? null : 1); }
-      if (!editing && crop && image && event.key.startsWith("Arrow")) {
+      if (!editing && (event.ctrlKey || event.metaKey) && ["+", "=", "-", "_"].includes(event.key)) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        changeZoom(event.key === "+" || event.key === "=" ? 1 : -1);
+      }
+      if (!editing && tool === "crop" && crop && image && event.key.startsWith("Arrow")) {
         event.preventDefault();
         if (busyRef.current || gestureRef.current || cropDrag.current || closePrompt) return;
         const step = event.shiftKey ? 10 : 1;
@@ -417,6 +481,7 @@ export function AnnotatorModal({
         !editing &&
         !activatingButton &&
         event.key === "Enter" &&
+        !quickCrop &&
         tool === "crop" &&
         crop
       ) {
@@ -551,9 +616,10 @@ export function AnnotatorModal({
       event.currentTarget.releasePointerCapture(event.pointerId);
     requestPaint();
   };
-  const exportImage = async (action: "copy" | "save") => {
+  const exportImage = async (action: "copy" | "save" | "pdf") => {
     if (!documentRef.current || busyRef.current || gestureRef.current || cropDrag.current || closePrompt) return;
-    if (cropChanged) {
+    if (regionCapture && !crop) { setStatus("Select an area first."); return; }
+    if (cropChanged && !quickCrop && action !== "pdf") {
       setStatus("Apply or cancel the crop before exporting.");
       return;
     }
@@ -565,19 +631,23 @@ export function AnnotatorModal({
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => setTimeout(resolve, 0)),
       );
-      const png = documentRef.current.exportPng();
+      const png = documentRef.current.exportPng(quickCrop || action === "pdf" ? crop : null);
       if (action === "copy") {
         await onCopyResult(png);
         setStatus("Image copied.");
       } else {
-        await onSave(png, clip?.id);
+        if (action === "pdf") {
+          const saved = await invoke<Clip>("save_image_pdf", {dataBase64: png});
+          if (regionCapture) await invoke("finish_region_capture", {id: regionCapture.id, clipId: saved.id});
+        }
+        else await onSave(png, clip?.id);
         closingRef.current = true;
-        try { await discardDraft(clip?.id); await finishClose(); }
+        try { if (!quickCrop) await discardDraft(clip?.id); await finishClose(); }
         catch(e) { setStatus("Image saved to history."); setError("Image saved, but the editor could not finish closing: " + messageOf(e)); }
       }
     } catch (exportError) {
       setError(
-        `${action === "copy" ? "Copy" : "Save"} failed: ${messageOf(exportError)}`,
+        `${action === "copy" ? "Copy" : action === "pdf" ? "Save PDF" : "Save"} failed: ${messageOf(exportError)}`,
       );
     } finally {
       busyRef.current = false;
@@ -589,7 +659,7 @@ export function AnnotatorModal({
   const ready = !loading && !!image;
   const toolHint =
     tool === "crop"
-      ? crop ? "Drag any edge or corner to resize. Arrow keys move; focus a handle to resize. Enter applies." : "Draw an area on the image, or choose Adjust edges to start from the full image."
+      ? crop ? quickCrop ? "Drag edges or draw an area. Ctrl+C copies the selection; Ctrl+S saves it." : "Drag any edge or corner to resize. Arrow keys move; focus a handle to resize. Enter applies." : "Draw an area on the image, or choose Adjust edges to start from the full image."
       : tool === "text"
         ? "Enter text, then click the image to place it."
         : tool === "step"
@@ -601,16 +671,28 @@ export function AnnotatorModal({
               : "Drag on the image to annotate. Ctrl+Z undoes.";
   return (
     <div
-      className="annotator"
+      className={`annotator${regionCapture ? " is-region" : ""}${crop ? " has-selection" : ""}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="annotator-title"
       tabIndex={-1}
       ref={modalRef}
+      onContextMenu={event => {
+        if (!regionCapture) return;
+        event.preventDefault();
+        const screen=captureScreen({x:event.clientX,y:event.clientY,width:1,height:1},captureScreens ?? []) ?? {x:0,y:0,...viewport};
+        setContextMenu({x:Math.max(screen.x+8,Math.min(event.clientX,screen.x+screen.width-208)),y:Math.max(screen.y+8,Math.min(event.clientY,screen.y+screen.height-48))});
+      }}
+      onPointerDownCapture={event => {if (!(event.target as HTMLElement).closest("[data-region-context]")) setContextMenu(null);}}
     >
+      {regionCapture && <h2 id="annotator-title" className="region-sr-only">Area capture</h2>}
+      {regionCapture && contextMenu && <div className="region-context-menu" role="menu" aria-label="Area capture" data-region-context style={{left:contextMenu.x,top:contextMenu.y}} onKeyDown={event=>{if(event.key==="Escape"){event.preventDefault();event.stopPropagation();setContextMenu(null);modalRef.current?.focus();}}}>
+        <button role="menuitem" autoFocus disabled={!!busy} onClick={()=>{setContextMenu(null);cancelCropGesture();if(gestureRef.current)cancelGesture();void finishClose().catch(error=>setError(messageOf(error)));}}><X size={16}/> Cancel capture <kbd>Esc</kbd></button>
+      </div>}
+      {!regionCapture && <div className="annotator-controls">
       <header className="annotator-header">
         <div>
-          <h2 id="annotator-title">Edit image</h2>
+          <h2 id="annotator-title">{regionCapture ? crop ? "Edit selected area" : "Select an area" : quickCrop ? "Quick edit" : "Edit image"}</h2>
           <span>
             {image
               ? `${image.width.toLocaleString()} × ${image.height.toLocaleString()} px`
@@ -618,8 +700,8 @@ export function AnnotatorModal({
           </span>
         </div>
         <div className="annotator-header-actions">
-          <button aria-label={mode === "inline" ? "Open editor in maximized window" : "Return to sidebar"} title={mode === "inline" ? "Open maximized window" : "Return to sidebar"} onClick={() => void switchMode(mode === "inline" ? "window" : "inline")} disabled={!!busy || drawing}>{mode === "inline" ? <Maximize2 size={17}/> : <Minimize2 size={17}/>}</button>
-          <button aria-label="Toggle fullscreen editor" title="Fullscreen (F11)" onClick={()=>void switchMode(mode==="fullscreen"?"window":"fullscreen")} disabled={!!busy || drawing}><Expand size={17}/></button>
+          {!regionCapture && <><button aria-label={mode === "inline" ? "Open editor in maximized window" : "Return to sidebar"} title={mode === "inline" ? "Open maximized window" : "Return to sidebar"} onClick={() => void switchMode(mode === "inline" ? "window" : "inline")} disabled={!!busy || drawing}>{mode === "inline" ? <Maximize2 size={17}/> : <Minimize2 size={17}/>}</button>
+          <button aria-label="Toggle fullscreen editor" title="Fullscreen (F11)" onClick={()=>void switchMode(mode==="fullscreen"?"window":"fullscreen")} disabled={!!busy || drawing}><Expand size={17}/></button></>}
           <button aria-label="Redo last edit" title="Redo (Ctrl+Shift+Z)" disabled={!documentRef.current?.canRedo || !!busy || drawing} onClick={()=>{documentRef.current?.redo();setRevision(v=>v+1);}}><Redo2 size={17}/></button>
           <button
             aria-label="Undo last edit (Ctrl+Z)"
@@ -645,12 +727,7 @@ export function AnnotatorModal({
             key={id}
             aria-pressed={tool === id}
             disabled={!ready || !!busy || drawing}
-            onClick={() => {
-              setTool(id);
-              setCrop(id === "crop" && image ? initialCrop(image.width, image.height, aspect) : null);
-              if (id === "crop") setCropMode("adjust");
-              setStatus("");
-            }}
+            onClick={() => selectTool(id)}
           >
             <Icon size={16} />
             <span>{label}</span>
@@ -693,7 +770,8 @@ export function AnnotatorModal({
         <div className="annotator-zoom" role="group" aria-label="Image zoom">
           <button
             aria-label="Zoom out"
-            onClick={() => setZoom((value) => Math.max(fit, (value ?? fit) / 1.5))}
+            title="Zoom out (Ctrl+minus or Ctrl+wheel)"
+            onClick={() => changeZoom(-1)}
             disabled={!ready || zoom === null || drawing}
           >
             <ZoomOut size={16} />
@@ -707,7 +785,8 @@ export function AnnotatorModal({
           </button>
           <button
             aria-label="Zoom in"
-            onClick={() => setZoom((value) => Math.min(maxZoom, (value ?? fit) * 1.5))}
+            title="Zoom in (Ctrl+plus or Ctrl+wheel)"
+            onClick={() => changeZoom(1)}
             disabled={!ready || scale >= maxZoom || drawing}
           >
             <ZoomIn size={16} />
@@ -728,10 +807,11 @@ export function AnnotatorModal({
         </label>
       )}
       <p className="annotator-hint">{toolHint}</p>
+      </div>}
       <div
         className={`annotator-stage ${tool === "pan" ? "is-pan" : ""}`}
         ref={stageRef}
-        onScroll={requestPaint}
+        onScroll={() => {requestPaint(); if (regionCapture) updateRegionBounds();}}
       >
         {loading && (
           <p className="annotator-loading" role="status">
@@ -763,21 +843,23 @@ export function AnnotatorModal({
             onPointerMove={updateGesture}
             onPointerUp={pointerUp}
             onPointerCancel={() => {
+              const wasCrop = gestureRef.current?.action.tool === "crop";
               cancelGesture();
-              setCrop(null);
+              if (wasCrop) setCrop(null);
             }}
             onLostPointerCapture={() => {
               if (gestureRef.current) {
+                const wasCrop = gestureRef.current.action.tool === "crop";
                 cancelGesture();
-                setCrop(null);
+                if (wasCrop) setCrop(null);
               }
             }}
           />
-          {crop && image && (
+          {(tool === "crop" || regionCapture) && crop && image && (
             <div
-              className="annotator-crop"
+              className={`annotator-crop${tool !== "crop" ? " is-inactive" : ""}`}
               ref={cropRef}
-              tabIndex={0}
+              tabIndex={tool === "crop" ? 0 : -1}
               role="group"
               aria-label="Crop selection. Arrow keys move the selection; focus an edge to resize."
               style={{
@@ -798,7 +880,8 @@ export function AnnotatorModal({
                 data-edge={edge}
                 aria-label={`Resize crop ${edgeLabels[edge]}`}
                 title={`Resize ${edgeLabels[edge]} · arrow keys, Shift for 10 pixels`}
-                disabled={!!busy}
+                disabled={!!busy || tool !== "crop"}
+                tabIndex={tool === "crop" ? 0 : -1}
                 className={"crop-handle " + edge}
               />)}
               <span>
@@ -808,7 +891,7 @@ export function AnnotatorModal({
           )}
         </div>
       </div>
-      {tool === "crop" && (
+      {!regionCapture && tool === "crop" && (
         <div className="annotator-crop-actions">
           <label>Ratio <select value={aspect} disabled={!!busy || drawing || !ready} onChange={e=>{ const next = Number(e.target.value); setAspect(next); if (crop) { const fitted = initialCrop(crop.width, crop.height, next); setCrop({...fitted, x: crop.x + fitted.x, y: crop.y + fitted.y}); } }}><option value={0}>Free</option><option value={1}>1:1</option><option value={16/9}>16:9</option><option value={4/3}>4:3</option></select></label>
           <span>
@@ -817,17 +900,17 @@ export function AnnotatorModal({
           <button onClick={() => setCrop(null)} disabled={!!busy || drawing || !crop}>
             Cancel crop
           </button>
-          <button
+          {!quickCrop && <button
             className="is-primary"
             onClick={applyCrop}
             disabled={!!busy || drawing || !crop || crop.width < 1 || crop.height < 1}
           >
             <Check size={16} />
             Apply crop
-          </button>
+          </button>}
         </div>
       )}
-      <div className="annotator-feedback" aria-live="polite">
+      {(!regionCapture || error || status) && <div className="annotator-feedback" aria-live="polite">
         {error ? (
           <p role="alert" className="annotator-error">
             {error}
@@ -836,31 +919,45 @@ export function AnnotatorModal({
           <p>{status}</p>
         ) : (
           <p>
-            Save creates a new image in history. The original stays available.
+            {regionCapture ? "Select an area, add markup, then Ctrl+C to copy, Ctrl+S to save an image, or Ctrl+P for PDF. Escape cancels." : quickCrop ? "Crop, draw or add a label. Ctrl+C copies; Ctrl+S saves an image; Ctrl+P saves a PDF." : "Save creates a new image in history. Save PDF exports the selected area with your markup."}
           </p>
         )}
-      </div>
+      </div>}
       {closePrompt && <div ref={promptRef} className="annotator-close-prompt" role="alertdialog" aria-modal="true" aria-label="Keep unfinished edit?"><p>Keep this unfinished edit for later?</p><button onClick={()=>setClosePrompt(false)}>Continue editing</button><button onClick={()=>void keepDraft()}>Keep draft & close</button><button onClick={()=>{closingRef.current=true;void discardDraft(clip?.id).then(finishClose).catch(e=>{closingRef.current=false;setError(messageOf(e));});}}>Discard & close</button></div>}
-      <footer className="annotator-footer">
+      {regionCapture && <RegionToolbar selection={regionBounds} viewport={viewport} screens={captureScreens} tools={tools} tool={tool} onTool={selectTool}
+        color={color} onColor={setColor} width={width} onWidth={setWidth} text={text} onText={setText}
+        disabled={!ready || !!busy || drawing} canUndo={!!documentRef.current?.canUndo} canRedo={!!documentRef.current?.canRedo}
+        onUndo={undo} onRedo={() => {documentRef.current?.redo();setRevision(value => value+1);}}
+        onZoom={changeZoom} onFit={() => setZoom(null)} onExport={action => {void exportImage(action);}} onClose={close}/>}
+      {!regionCapture && <footer className="annotator-footer">
         <button onClick={close} disabled={!!busy}>
           Cancel
         </button>
         <button
           onClick={() => void exportImage("copy")}
-          disabled={!ready || !!busy || drawing || cropChanged}
+          disabled={!ready || !!busy || drawing || (!quickCrop && cropChanged)}
+          title="Copy image (Ctrl+C)"
         >
           <Copy size={16} />
           {busy === "copy" ? "Copying…" : "Copy image"}
         </button>
         <button
+          onClick={() => void exportImage("pdf")}
+          disabled={!ready || !!busy || drawing}
+          title="Save selected area as a PDF in history (Ctrl+P)"
+        >
+          <FileDown size={16} />
+          {busy === "pdf" ? "Creating PDF…" : "Save PDF"}
+        </button>
+        <button
           className="is-primary"
           onClick={() => void exportImage("save")}
-          disabled={!ready || !!busy || drawing || cropChanged}
+          disabled={!ready || !!busy || drawing || (!quickCrop && cropChanged)}
         >
           <Save size={16} />
           {busy === "save" ? "Saving…" : "Save image"}
         </button>
-      </footer>
+      </footer>}
     </div>
   );
 }

@@ -4,7 +4,8 @@
   "description": "Capability for the main window",
   "windows": [
     "main",
-    "capture-pad"
+    "capture-pad",
+    "capture-overlay"
   ],
   "permissions": [
     "core:default",

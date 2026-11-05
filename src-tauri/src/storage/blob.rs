@@ -55,7 +55,9 @@ impl BlobStore {
         &self,
         bytes: &[u8],
     ) -> std::io::Result<(String, Option<String>, Option<String>)> {
-        let img = decode_image(bytes)?;
+        // RGB PNGs and opaque RGBA PNGs are the same clipboard image. Use one
+        // pixel representation so a terminal rewrite cannot create another hash.
+        let img = image::DynamicImage::ImageRgba8(decode_image(bytes)?.into_rgba8());
         let mut png = Vec::new();
         img.write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
             .map_err(std::io::Error::other)?;
@@ -115,6 +117,38 @@ impl BlobStore {
     }
 
     /// Get absolute path to the stored blob
+    pub fn get_pdf_path(&self, hash: &str) -> PathBuf {
+        self.get_blob_path(hash).with_extension("pdf")
+    }
+
+    pub fn save_pdf(&self, bytes: &[u8]) -> std::io::Result<String> {
+        if !crate::clipboard::pdf::valid_pdf(bytes) {
+            return Err(std::io::Error::other("Invalid PDF or PDF exceeds 32 MB"));
+        }
+        let hash = Self::compute_hash(bytes);
+        let path = self.get_pdf_path(&hash);
+        if !path.exists() {
+            let pending = self
+                .base_dir
+                .join(format!("{}.pending", uuid::Uuid::new_v4()));
+            let result = (|| {
+                let mut file = OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .open(&pending)?;
+                file.write_all(bytes)?;
+                file.sync_all()?;
+                drop(file);
+                fs::rename(&pending, path)
+            })();
+            if result.is_err() {
+                let _ = fs::remove_file(pending);
+            }
+            result?;
+        }
+        Ok(hash)
+    }
+
     pub fn get_blob_path(&self, hash: &str) -> PathBuf {
         if hash.len() != 64 || !hash.bytes().all(|c| c.is_ascii_hexdigit()) {
             return self.base_dir.join("__invalid_blob__.png");
@@ -155,6 +189,10 @@ impl BlobStore {
     pub fn delete_blob(&self, hash: &str) -> std::io::Result<()> {
         if hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit()) {
             let _ = fs::remove_file(self.base_dir.join(format!("{hash}.preview-v2.png")));
+            let pdf = self.get_pdf_path(hash);
+            if pdf.exists() {
+                fs::remove_file(pdf)?;
+            }
         }
         let path = self.get_blob_path(hash);
         if path.exists() {

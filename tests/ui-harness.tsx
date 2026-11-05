@@ -35,7 +35,7 @@ let clips: Clip[] = Array.from({ length: 125 }, (_, i) => ({
           ? "code"
           : "link",
   text_content:
-    i % 5 === 1
+    i === 116 ? "Unique resource fixture for locating history" : i % 5 === 1
       ? "Remember to review the updated proposal before Friday. The client asked for a simpler onboarding flow."
       : i % 5 === 2
         ? "const selection = history.filter(clip => clip.is_pinned);"
@@ -52,6 +52,12 @@ let clips: Clip[] = Array.from({ length: 125 }, (_, i) => ({
 }));
 let pinned = true;
 const isPad = new URLSearchParams(location.search).get("surface") === "pad";
+const isQuickCrop = new URLSearchParams(location.search).get("surface") === "crop";
+const isRegion = new URLSearchParams(location.search).get("surface") === "region";
+const isPdf = new URLSearchParams(location.search).get("surface") === "pdf";
+const copiedPng = document.createElement("img");
+copiedPng.id = "fixture-copy"; copiedPng.alt = "Copied crop verification";
+copiedPng.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none";
 let preferences = {
   capturePaused: false,
   trashRetentionDays: 30,
@@ -64,6 +70,9 @@ mockIPC(
   async (command, payload: any) => {
     switch (command) {
       case "get_pad_unread": return 3;
+      case "show_region_capture": document.body.dataset.regionShown = "true"; return;
+      case "cancel_region_capture": document.body.dataset.closed = "true"; return;
+      case "save_image_pdf": document.body.dataset.pdf = payload.dataBase64; return {...clips[0], id:"pdf-fixture", clip_type:"file"};
       case "dismiss_capture_pad":
       case "move_utility_window":
       case "open_from_pad": {
@@ -82,13 +91,18 @@ mockIPC(
           (c) =>
             c.is_deleted === !!f.trash_only &&
             (!f.pinned_only || c.is_pinned) &&
-            (!f.clip_type || c.clip_type === f.clip_type) &&
+            (!f.clip_type || c.clip_type === f.clip_type || (f.clip_type === "capture" && ["image","file"].includes(c.clip_type))) &&
             (!f.search ||
               (c.text_content || "")
                 .toLowerCase()
                 .includes(f.search.toLowerCase())),
         );
+        result.sort((a,b)=>Number(b.is_pinned)-Number(a.is_pinned)||b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id));
         return result.slice(f.offset || 0, (f.offset || 0) + f.limit);
+      }
+      case "locate_clip_in_history": {
+        const ordered=clips.filter(c=>c.is_deleted===payload.trash).sort((a,b)=>Number(b.is_pinned)-Number(a.is_pinned)||b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id));
+        const index=ordered.findIndex(c=>c.id===payload.id);return index<0?null:index;
       }
       case "get_storage_stats":
         return {
@@ -108,7 +122,10 @@ mockIPC(
         return image;
       case "copy_clip_to_clipboard":
         return new URLSearchParams(location.search).get("copyFail") !== "1";
+      case "copy_selected_text": document.body.dataset.copiedSelection=JSON.stringify(payload.ids);return true;
       case "copy_image_base64_to_clipboard":
+        copiedPng.src = payload.dataBase64;
+        document.body.append(copiedPng);
         return true;
       case "toggle_clip_pin": {
         const c = clips.find((c) => c.id === payload.id)!;
@@ -152,8 +169,23 @@ mockIPC(
 );
 const { App } = await import("../src/App");
 const { CapturePad } = await import("../src/components/CapturePad");
+const { AnnotatorModal } = await import("../src/components/AnnotatorModal");
+function PdfFixture() {
+  const [url,setUrl] = React.useState("");
+  return <main><h1>PDF capture verification</h1><p>Synthetic 960 × 2400 capture. Production PDF encoder; no clipboard writes.</p><button onClick={async()=>{
+    const {screenshotPdf} = await import("../extension/screenshot-pdf.mjs");
+    const source = document.createElement("canvas");source.width=960;source.height=2400;
+    const context=source.getContext("2d")!;
+    for(let index=0;index<3;index++) {
+      context.fillStyle=["#e6edf2","#a9c2cf","#e3f2ee"][index];context.fillRect(0,index*800,960,800);
+      context.fillStyle="#172b3a";context.font="40px Segoe UI";context.fillText(["Top of capture","Middle of capture","Bottom of capture"][index],60,index*800+90);
+    }
+    try { const pdf=await screenshotPdf(source); if(url)URL.revokeObjectURL(url);setUrl(URL.createObjectURL(pdf)); }
+    finally {source.width=source.height=0;}
+  }}>Generate sample PDF</button>{url && <a href={url} download="synthetic-capture.pdf">Save sample PDF</a>}</main>;
+}
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {isPad ? <><div style={{ width:216, height:88 }}><CapturePad /></div><p id="fixture-status" role="status">Pad fixture: native actions are simulated</p></> : <App />}
+    {isPad ? <><div style={{ width:216, height:112 }}><CapturePad /></div><p id="fixture-status" role="status">Pad fixture: native actions are simulated</p></> : isQuickCrop || isRegion ? <AnnotatorModal regionCapture={isRegion ? {id:"fixture-region", image} : undefined} quickCrop clip={clips[0]} onClose={()=>{document.body.dataset.closed="true";}} onSave={async png=>{document.body.dataset.saved=png;}} onCopyResult={async png=>{copiedPng.src=png;document.body.append(copiedPng);}}/> : isPdf ? <PdfFixture/> : <App />}
   </React.StrictMode>,
 );

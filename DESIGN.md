@@ -24,15 +24,15 @@ Recent clips                        Select  refresh
   size                       drag edit trash Copy
 ```
 
-The Pad is a miniature capture shelf. Most of its width belongs to the image; one narrow side rail holds move, history and dismiss controls. The image opens history on click and drags to another app. A small count badge replaces repeated New images / Open history / brand labels. There is one outer frame, no nested window appearance. Errors remain readable and dismissible.
+The Pad is a miniature capture shelf. Most of its width belongs to the capture; one narrow side rail holds Quick edit, history and dismiss controls. The image opens Quick edit on click; a PDF opens an independent copy in the default PDF app. Drag the thumbnail to another app or the top edge to move the Pad. A small count badge replaces repeated New images / Open history / brand labels. There is one outer frame, no nested window appearance. Errors remain readable and dismissible.
 
 ```
-[                         ][ move    ]
+[                         ][ edit    ]
 [   latest image     (2)   ][ history ]
 [                         ][ close   ]
 ```
 
-The editor uses a white tool surface around a slate canvas, distinct selected tools and a persistent action footer. Settings group capture, Pad, sound and shortcuts into labelled sections. Companion uses the same palette and prioritizes one capture action, followed by the actual result or actionable error.
+The editor uses a white tool surface around a slate canvas, distinct selected tools and a persistent action footer. Quick edit starts on Crop with all drawing tools available; its pending crop survives tool changes and exports directly. Settings group capture, Pad, sound and shortcuts into labelled sections. Companion uses the same palette in a 400px utility popup with three direct actions, actual shortcut badges and the loaded version. Its compact result sits beside an image thumbnail. Advanced options and help are disclosed separately. The default view with a result fits the browser's popup height; expanded states can scroll. A temporary focused delivery window finishes clipboard copying when background writes are blocked and closes after success.
 
 ## Critique and constraints
 

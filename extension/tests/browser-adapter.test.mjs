@@ -20,6 +20,7 @@ function pageNode(position, top = 'auto', boundsTop = 0) {
 const fixed = pageNode('fixed');
 const stickyInFlow = pageNode('sticky', '0px', 500);
 let listener;
+let commandListener;
 let failCapture = false;
 let focused = true;
 let currentUrl = 'https://example.test/page';
@@ -68,27 +69,52 @@ globalThis.chrome = {
     closeDocument: async () => { offscreenOpen = false; },
   },
   action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {}, setTitle: async () => {} },
-  commands: { onCommand: { addListener() {} } },
+  commands: { onCommand: { addListener(callback) {commandListener=callback;} } },
 };
 await import('../background.js');
 function request(action, options = {}) { return new Promise(resolve => listener({ action, ...options }, { id: 'companion' }, resolve)); }
 
-test('clipboard failure retains the PNG without opening or focusing a result tab', async () => {
+test('shortcuts select visible PNG, full PNG and full PDF independently of saved popup mode', async () => {
+  const storage=chrome.storage;
+  chrome.storage={local:{get:async()=>({captureSettings:{mode:'feed',format:'pdf'}})}};
+  try {
+    for(const [command,height,format] of [['capture-full-page',800,'png'],['capture-long-page',1900,'png'],['capture-full-page-pdf',1900,'pdf']]) {
+      commandListener(command,{id:7,windowId:3,url:currentUrl});
+      do { await new Promise(resolve=>setTimeout(resolve,30)); } while((await request('capture-status')).busy);
+      assert.equal(metrics.totalHeight,height);assert.equal(metrics.outputFormat,format);
+      assert.equal(window.scrollY,300);assert.equal(styles.size,0);
+    }
+  } finally {chrome.storage=storage;}
+});
+
+test('clipboard denial opens one automatic delivery window only while the capture tab stays focused', async () => {
   const send = chrome.runtime.sendMessage, contexts = chrome.runtime.getContexts;
   let popup = false;
   const opened = [];
-  chrome.tabs.create = async options => { opened.push(options); };
+  const create = chrome.windows.create;
+  chrome.windows.create = async options => { opened.push(options); return {id:12}; };
   chrome.runtime.getContexts = async options => options.contextTypes.includes('POPUP') ? (popup ? [{}] : []) : contexts(options);
-  chrome.runtime.sendMessage = async message => message.target === 'offscreen' && message.action === 'finish'
-    ? {success:true,copied:false,resultAvailable:true,width:1000,height:800}
+  chrome.runtime.sendMessage = async message => message.target === 'popup' && message.action === 'deliver-capture' ? {accepted:popup} : message.target === 'offscreen' && message.action === 'finish'
+    ? {success:true,copied:false,warning:'Clipboard denied',resultId:'capture-delivery',resultAvailable:true,width:1000,height:800}
     : send(message);
   try {
     assert.equal((await request('capture-full-page',{mode:'visible'})).success,true);
-    assert.deepEqual(opened,[]);
+    assert.equal(opened.length,1, 'A completed shortcut capture must finish delivery without a manual popup click');
+    assert.equal(opened[0].type,'popup');
+    assert.match(opened[0].url,/result.html\?deliver=capture-delivery/);
+    assert.equal((await request('claim-delivery',{resultId:'wrong'})).success,false);
+    assert.equal((await request('claim-delivery',{resultId:'capture-delivery'})).success,true);
+    assert.equal((await request('claim-delivery',{resultId:'capture-delivery'})).success,false);
+    assert.equal((await request('copy-complete',{resultId:'capture-delivery'})).success,true);
+    assert.equal((await request('capture-status')).warning,undefined,'Successful delivery must clear the previous clipboard failure');
+    focused=false;
+    await request('capture-full-page',{mode:'visible'});
+    assert.equal(opened.length,1, 'Do not steal focus after the user switches apps');
+    focused=true;
     popup = true;
     await request('capture-full-page',{mode:'visible'});
-    assert.equal(opened.length,0);
-  } finally {chrome.runtime.sendMessage=send;chrome.runtime.getContexts=contexts;offscreenOpen=false;}
+    assert.equal(opened.length,1, 'A focused action popup can complete delivery itself');
+  } finally {chrome.windows.create=create;focused=true;chrome.runtime.sendMessage=send;chrome.runtime.getContexts=contexts;offscreenOpen=false;}
 });
 
 test('capture allows animation to render and preserves large pinned scenes', async () => {
@@ -106,6 +132,25 @@ test('capture allows animation to render and preserves large pinned scenes', asy
     assert.equal(result.success,true,result.error);
     assert.equal(metrics.settleMs,1400);
   } finally {document.querySelectorAll=query;chrome.tabs.captureVisibleTab=capture;}
+});
+
+test('a delayed older delivery cannot open a window for a replacement capture',async()=>{
+ const send=chrome.runtime.sendMessage,create=chrome.windows.create;
+ let release,firstDelivered;const held=new Promise(resolve=>firstDelivered=resolve);let finishes=0,opened=0;
+ chrome.windows.create=async()=>{opened++;};
+ chrome.runtime.sendMessage=async message=>{
+   if(message.target==='offscreen'&&message.action==='finish')return {success:true,copied:false,resultAvailable:true,resultId:`race-${++finishes}`,width:1000,height:800};
+   if(message.target==='popup'&&message.action==='deliver-capture'){
+     if(message.resultId==='race-1'){firstDelivered();return new Promise(resolve=>{release=resolve;});}
+     return {accepted:true};
+   }
+   return send(message);
+ };
+ try{
+   const old=request('capture-full-page',{mode:'visible'});await held;
+   await request('capture-full-page',{mode:'visible'});release({accepted:false});await old;
+   assert.equal(opened,0,'The old completion must not open or auto-copy the newer result');
+ }finally{chrome.runtime.sendMessage=send;chrome.windows.create=create;}
 });
 
 test('normal pages use the actual scrolling element instead of overflowing body dimensions', async () => {
