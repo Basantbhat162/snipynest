@@ -2,17 +2,18 @@
 use base64::Engine;
 use parking_lot::Mutex;
 use tauri::{Emitter, Manager};
-use crate::{screen_capture::{CaptureGuard, capture_png, monitor_at}, AppState};
+use crate::{screen_capture::{CaptureGuard, capture_png, desktop_rect, desktop_monitors, ScreenRect}, AppState};
 
 struct Session {
     id: String,
     image: String,
+    screens: Vec<ScreenRect>,
     _guard: CaptureGuard,
 }
 #[derive(Default)]
 pub struct RegionState(Mutex<Option<Session>>);
 #[derive(serde::Serialize)]
-pub struct Snapshot { id: String, image: String }
+pub struct Snapshot { id: String, image: String, screens: Vec<ScreenRect> }
 
 pub fn cancel(app: &tauri::AppHandle) {
     app.state::<RegionState>().0.lock().take();
@@ -34,17 +35,20 @@ pub async fn start(app: tauri::AppHandle) -> Result<(), String> {
         let result = (|| {
             let mut pointer = windows_sys::Win32::Foundation::POINT { x: 0, y: 0 };
             if unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut pointer) } == 0 { return Err("Windows could not locate the pointer".to_string()); }
-            let rect = monitor_at((pointer.x, pointer.y), false)?;
+            let rect = desktop_rect()?;
+            let mut screens=desktop_monitors(rect);
+            screens.sort_by_key(|screen| !(pointer.x>=screen.x && pointer.x<screen.x+screen.width && pointer.y>=screen.y && pointer.y<screen.y+screen.height));
+            for screen in &mut screens {screen.x-=rect.x;screen.y-=rect.y;}
             let overlay = handle.get_webview_window("capture-overlay").ok_or("Area capture window is unavailable")?;
             overlay.set_position(tauri::PhysicalPosition::new(rect.x, rect.y)).map_err(|e| e.to_string())?;
             overlay.set_size(tauri::PhysicalSize::new(rect.width as u32, rect.height as u32)).map_err(|e| e.to_string())?;
             if let Some(main) = handle.get_webview_window("main") { crate::commands::hide_history_window(&main)?; }
             crate::window::hide_pad_native(&handle)?;
-            Ok::<_, String>(rect)
+            Ok::<_, String>((rect,screens))
         })();
         let _ = send.send(result);
     }).map_err(|e| e.to_string())?;
-    let rect = tauri::async_runtime::spawn_blocking(move || receive.recv()).await.map_err(|e| e.to_string())?.map_err(|_| "Area capture preparation stopped")??;
+    let (rect,screens) = tauri::async_runtime::spawn_blocking(move || receive.recv()).await.map_err(|e| e.to_string())?.map_err(|_| "Area capture preparation stopped")??;
     let image = tauri::async_runtime::spawn_blocking(move || {
         // Allow the compositor to remove our surfaces before freezing the desktop.
         std::thread::sleep(std::time::Duration::from_millis(40));
@@ -52,7 +56,7 @@ pub async fn start(app: tauri::AppHandle) -> Result<(), String> {
         Ok::<_, String>(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)))
     }).await.map_err(|e| e.to_string())??;
     let id = uuid::Uuid::new_v4().to_string();
-    *app.state::<RegionState>().0.lock() = Some(Session { id: id.clone(), image, _guard: guard });
+    *app.state::<RegionState>().0.lock() = Some(Session { id: id.clone(), image, screens, _guard: guard });
     if let Err(error) = app.emit_to("capture-overlay", "region-start", &id) { cancel(&app); return Err(error.to_string()); }
     // A failed WebView load cannot retain the screenshot/capture reservation forever.
     std::thread::spawn(move || {
@@ -74,7 +78,7 @@ fn require_overlay(window: &tauri::WebviewWindow) -> Result<(), String> {
 #[tauri::command]
 pub fn get_region_capture_snapshot(window: tauri::WebviewWindow, state: tauri::State<'_, RegionState>) -> Result<Option<Snapshot>, String> {
     require_overlay(&window)?;
-    Ok(state.0.lock().as_ref().map(|session| Snapshot { id: session.id.clone(), image: session.image.clone() }))
+    Ok(state.0.lock().as_ref().map(|session| Snapshot { id: session.id.clone(), image: session.image.clone(), screens:session.screens.clone() }))
 }
 
 #[tauri::command]

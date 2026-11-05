@@ -4,15 +4,24 @@ import {readFileSync} from "node:fs";
 import ts from "typescript";
 
 const code = ts.transpileModule(readFileSync(new URL("../src/components/ClipCard.tsx",import.meta.url),"utf8"), {compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
-function card(type="image") {
+function card(type="image", extra={}) {
   let opened=0, dragged=0;
   const jsx=(type,props)=>({type,props});
   const modules={react:{useRef:value=>({current:value})},"react/jsx-runtime":{jsx,jsxs:jsx},"lucide-react":new Proxy({},{get:(_,key)=>key}),"../lib/format":{formatBytes:()=>"10 KB",clipDate:()=>"now"},"../lib/useClipPreview":{useClipPreview:()=>"data:fixture"},"../lib/useNativeDrag":{useNativeDrag:start=>({onPointerMove:start})}};
   const exports={};new Function("require","exports",code)(name=>modules[name],exports);
-  const tree=exports.ClipCard({clip:{id:"fixture",clip_type:type,char_count:100,created_at:new Date().toISOString()},onOpenPreview:()=>opened++,onNativeDrag:()=>dragged++});
+  const tree=exports.ClipCard({clip:{id:"fixture",clip_type:type,char_count:100,created_at:new Date().toISOString()},onOpenPreview:()=>opened++,onNativeDrag:()=>dragged++,...extra});
   const nodes=[];const walk=n=>{if(Array.isArray(n))n.forEach(walk);else if(n&&typeof n==="object"){nodes.push(n);walk(n.props?.children);}};walk(tree);
   return {nodes,get opened(){return opened;},get dragged(){return dragged;}};
 }
+test("search result can reveal its position and checkbox forwards Shift",()=>{
+ let revealed,selection;
+ const c=card("text",{onReveal:id=>revealed=id,onSelect:(...args)=>selection=args});
+ const reveal=c.nodes.find(n=>n.props?.["aria-label"]==="Show in history");
+ assert.ok(reveal); reveal.props.onClick(); assert.equal(revealed,"fixture");
+ const checkbox=c.nodes.find(n=>n.type==="input");
+ checkbox.props.onClick({shiftKey:true,currentTarget:{checked:true}});
+ assert.deepEqual(selection,["fixture",true]);
+});
 test("image and PDF previews open on click and keyboard, and a drag cannot open a preview",()=>{
   for(const type of ["image","file"]){
     const c=card(type),preview=c.nodes.find(n=>n.props?.className==="clip-image");

@@ -5,3 +5,4 @@ pub mod win32;
 
 pub use listener::ClipboardListener;
 pub use win32::*;
+pub mod dib;

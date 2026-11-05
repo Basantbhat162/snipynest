@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.6.5 — unreleased
+
+- Added Show in history on search results, with destination-page scrolling and a visible position outline. Stale results clear as search changes.
+- Added inclusive Shift-click checkbox ranges and Copy text for complete selected text, code and links in displayed order.
+- Screen snip covers the extended desktop, including negative display origins, with tools placed on a real display. Right-click offers Cancel capture. The existing 32-megapixel memory limit remains.
+- Corrected Windows packed-bitmap mask offsets that could shift clipboard pixels and create different image identities. Sequence-bound reads avoid processing a newer clipboard under an older event.
+- Similar recompressed paste/dictation restores no longer replay capture feedback; altered images remain in history. Deliberate Lightshot/Windows snips still notify.
+- Indexed history ordering, moved history/statistics queries off the UI thread, coalesced arrival statistics, skipped repeat image encoding and released the database connection during legacy image decoding. Capture Pad uses a bounded preview/control grid.
+
+## 1.6.4 — unreleased
+
+- Replaced the large area-capture editor panel with a narrow icon strip beside the selection and a small action row underneath it. Controls move inside the screen at its edges.
+- Color/stroke, text entry and extra tools open only when requested. Copy, image save, PDF save, undo/redo and cancel remain available without the full editor panel.
+
 ## 1.6.3 — unreleased
 
 - Screen snip opens SnipyNest's own area-selection overlay on the monitor under the pointer. Select first, add markup, then copy, save an image or save a PDF. Escape and focus loss cancel.

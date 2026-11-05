@@ -9,6 +9,7 @@ import {
   FileText,
   Code2,
   Link2,
+  LocateFixed,
 } from "lucide-react";
 import type { Clip } from "../types/clip";
 import { formatBytes, clipDate } from "../lib/format";
@@ -21,7 +22,8 @@ interface Props {
   isFocused?: boolean;
   shortcutNumber?: number;
   busy?: boolean;
-  onSelect: (id: string, multi: boolean) => void;
+  onSelect: (id: string, range: boolean) => void;
+  onReveal?: (id: string) => void;
   onCopy: (clip: Clip) => void;
   onTogglePin: (id: string) => void;
   onTrash: (id: string) => void;
@@ -39,6 +41,7 @@ export function ClipCard({
   shortcutNumber,
   busy,
   onSelect,
+  onReveal,
   onCopy,
   onTogglePin,
   onTrash,
@@ -79,7 +82,10 @@ export function ClipCard({
             type="checkbox"
             aria-label="Select clip"
             checked={isSelected}
-            onChange={() => onSelect(clip.id, true)}
+            disabled={busy}
+            title="Select clip. Shift-click another checkbox to select the range."
+            onChange={() => {}}
+            onClick={event => onSelect(clip.id, event.shiftKey)}
           />
         </label>
         <Icon size={14} className="muted" />
@@ -150,6 +156,7 @@ export function ClipCard({
             : clip.char_count.toLocaleString() + " characters"}
         </span>
         <div className="clip-actions">
+          {onReveal && <button className="icon-button" aria-label="Show in history" title="Show in history · clear search and jump to this clip" disabled={busy} onClick={() => onReveal(clip.id)}><LocateFixed size={16}/></button>}
           {isTrashView ? (
             <>
               <button

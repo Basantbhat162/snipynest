@@ -1,4 +1,4 @@
-import { GripVertical, FolderDown, Trash2, X, Undo2 } from "lucide-react";
+import { GripVertical, FolderDown, Trash2, X, Undo2, Copy } from "lucide-react";
 import { useNativeDrag } from "../lib/useNativeDrag";
 interface Props {
   selectedCount: number;
@@ -9,6 +9,8 @@ interface Props {
   onTrashSelected: () => void;
   onRestoreSelected: () => void;
   onNativeDrag: () => void;
+  canCopyText: boolean;
+  onCopyText: () => void;
 }
 export function MultiDropBar({
   selectedCount,
@@ -19,6 +21,8 @@ export function MultiDropBar({
   onTrashSelected,
   onRestoreSelected,
   onNativeDrag,
+  canCopyText,
+  onCopyText,
 }: Props) {
   const drag = useNativeDrag(() => {
     if (!busy) onNativeDrag();
@@ -48,6 +52,7 @@ export function MultiDropBar({
           </button>
         ) : (
           <>
+            <button className="text-button" onClick={onCopyText} disabled={busy || !canCopyText} title={canCopyText ? "Copy full text of selected clips in displayed order" : "Select text, code or links to copy together"}><Copy size={15}/> Copy text</button>
             <button
               className="text-button drag-handle"
               {...drag}

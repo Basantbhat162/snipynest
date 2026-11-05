@@ -16,7 +16,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_TIMER, WM_USER, WNDCLASSW, WS_OVERLAPPED,
 };
 
-use super::win32::{read_clipboard_content, ClipboardItem};
+use super::win32::{read_clipboard_sequence, ClipboardItem};
 
 const WM_UPDATE_SHORTCUTS: u32 = WM_USER + 102;
 const WM_RECOVER_LISTENER: u32 = WM_USER + 103;
@@ -116,7 +116,7 @@ impl ClipboardListener {
                 }
                 let sequence = unsafe { GetClipboardSequenceNumber() };
                 if gate.attempt(sequence, paused.load(Ordering::Relaxed)) {
-                    if let Some(item) = read_clipboard_content() {
+                    if let Some(item) = read_clipboard_sequence(sequence) {
                         gate.completed();
                         on_clip(item, cursor);
                     }

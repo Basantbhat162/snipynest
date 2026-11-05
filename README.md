@@ -2,7 +2,7 @@
 
 A Windows clipboard workspace with searchable history, screenshot editing, a small Capture Pad, and a browser companion for webpage screenshots.
 
-**Current source: 1.6.3 development build.** Screen snip opens direct area selection with markup; image editing supports keyboard zoom and lossless PDF export. The features below require the updated desktop and Companion. The public downloads below remain 1.5.1.
+**Current source: 1.6.5 development build.** Search can reveal a Clip in history, Shift-click selects a range, and Screen snip spans the extended desktop with compact tools. Image editing supports keyboard zoom and lossless PDF export. The features below require the updated desktop and Companion. The public downloads below remain 1.5.1.
 
 ## Download for Windows
 
@@ -66,11 +66,13 @@ History filters share one compact row. The pin and trash icons beside Links open
 
 Restoring one of the 64 most recently seen images updates history quietly instead of replaying capture sound or reopening the Pad. Explicit Windows snips still notify, even with identical pixels.
 
+On a search-result card, choose **Show in history** (the locate icon) to clear search and filters, jump to that Clip's page and outline its position. Trash results stay in Trash. Click a checkbox, then **Shift-click** another to select the inclusive range on that page; Shift-clicking a checked target clears the range. Use **Copy text** to copy full selected text, code or links in displayed order, separated by blank lines. Mixed image/PDF selections use Export or Drag. Selection resets when changing pages or filters.
+
 Desktop shortcuts can be changed in Settings. Click the Capture Pad image to open Quick edit, or a PDF to open it in your default PDF app. The history control opens history. Drag the thumbnail into a compatible app, or drag the top edge to move the Pad. The count badge shows new captures; X hides the Pad. By default it hides after eight seconds of inactivity; hover, focus and drag pause the timer. Settings controls Pad visibility, sound and return after closing history. The Pad floats near the taskbar; it is not embedded in it.
 
 Select clips using their checkboxes. Open **Select** for **Select this page** and **Trash all matching…**. Bulk Trash requires confirmation and supports Undo. All matching excludes pinned clips unless you include them. A successful drop clears the transferred selection; cancelling keeps it selected. Images drag as files; text drags as text. For a mixed selection, use Export. Editing saves a new image and preserves the original.
 
-**Screen snip** (Ctrl+Shift+S or your assigned spare key) freezes the monitor under the pointer. Drag to select an area, then use the markup toolbar. **Ctrl+C** copies and closes; **Ctrl+S** saves an image to history; **Ctrl+P** saves a PDF. No image is copied or saved just by selecting. Escape, Close or switching to another app cancels. Selection spans one monitor at a time.
+**Screen snip** (Ctrl+Shift+S or your assigned spare key) freezes the extended desktop. Drag on any display or across displays to select an area. A narrow icon strip appears beside it and a small action row appears underneath. Hover or focus an icon for its name. Color/stroke and More tools open only when needed. **Ctrl+C** copies and closes; **Ctrl+S** saves an image to history; **Ctrl+P** saves a PDF. No image is copied or saved just by selecting. Right-click offers **Cancel capture**; Escape, Close or switching to another app also cancels. The combined desktop is bounded to 32 megapixels; gaps between displays appear black in a spanning selection. Actual mixed-DPI spanning acceptance remains incomplete.
 
 Crop opens with a full-image guide. Drag any edge or corner, or choose **Draw area** to draw a new selection. Focus a handle and use arrow keys for one-pixel adjustments (Shift for ten pixels), then choose **Apply crop**. **Open maximized window** gives the editor the full working area of its current monitor. Originals stay unchanged. **Ctrl+plus/minus** and **Ctrl+mouse wheel** zoom the image; **Ctrl+0** fits and **Ctrl+1** shows actual pixels.
 

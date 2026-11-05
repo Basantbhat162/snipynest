@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import ts from "typescript";
 import * as cropGeometry from "../src/annotation/crop.ts";
 import * as geometry from "../src/annotation/geometry.ts";
+import * as regionLayout from "../src/annotation/region-layout.ts";
 
 // Run the production component and its handlers. Canvas drawing and native IPC
 // are adapters; document pixel correctness has its own production-document tests.
@@ -52,6 +53,8 @@ function editorHarness(quickCrop = false, regionCapture) {
     "../annotation/document": {AnnotationDocument: TestDocument},
     "../annotation/crop": cropGeometry,
     "../annotation/geometry": geometry,
+    "../annotation/region-layout": regionLayout,
+    "./RegionToolbar": {RegionToolbar: function RegionToolbar() {}},
     "lucide-react": new Proxy({}, {get: (_target, name) => name}),
     "./Annotator.css": {},
   };
@@ -112,6 +115,13 @@ function pointer(target, pointerId = 1, clientX = 0, clientY = 0) {
   return {button: 0, pointerId, clientX, clientY, preventDefault() {}, stopPropagation() {},
     target: {dataset: target, closest: () => ({focus() {}})}, currentTarget: host};
 }
+test("right clicking area capture offers a keyboard accessible Cancel action",async()=>{
+ const editor=editorHarness(true,{id:"region",image:"data:fixture"});await editor.load();
+ editor.find(n=>n.props?.role==="dialog").props.onContextMenu({clientX:15,clientY:20,preventDefault(){}});editor.render();
+ const cancel=editor.find(n=>n.props?.role==="menuitem");assert.ok(cancel);
+ cancel.props.onClick();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(editor.closed,1);assert.ok(editor.nativeCalls.some(call=>call.name==="cancel_region_capture"));
+});
 
 test("opening Crop starts with a full-image adjustable guide and eight resize targets", async () => {
   const editor = editorHarness();
@@ -300,4 +310,13 @@ test("area capture begins without a selection or clipboard write and Escape canc
   editor.key("Escape"); await new Promise(resolve => setImmediate(resolve));
   assert.equal(editor.closed, 1);
   assert.deepEqual(editor.nativeCalls.at(-1), {name: "cancel_region_capture", args: {id: "area-fixture"}});
+});
+
+test("area capture does not render the full editor panel or footer", async () => {
+  const editor = editorHarness(true, {id: "area-fixture", image: "data:fixture"});
+  await editor.load();
+  assert.equal(editor.find(node => node.props?.className === "annotator-controls"), undefined,
+    "Area capture must use selection-attached tool strips, not the full editor panel");
+  assert.equal(editor.find(node => node.props?.className === "annotator-footer"), undefined);
+  assert.ok(editor.find(node => node.props?.id === "annotator-title"), "The capture still needs an accessible dialog name");
 });

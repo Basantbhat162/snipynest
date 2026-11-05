@@ -127,8 +127,8 @@ pub fn run() {
             limit: Some(64),
             ..Default::default()
         }) {
-            for clip in clips.iter().rev() {
-                arrivals.lock().should_notify(&clip.hash, None);
+            for (index,clip) in clips.iter().rev().enumerate() {
+                arrivals.lock().should_notify_preview(&clip.hash, None, if index>=clips.len().saturating_sub(16) {clip.thumbnail.as_deref()} else {None});
             }
         }
         while let Ok((item, monitor)) = capture_receiver.recv() {
@@ -184,7 +184,7 @@ pub fn run() {
                         if matches!(clip.clip_type, ClipType::Image | ClipType::File)
                             && arrivals
                                 .lock()
-                                .should_notify(&clip.hash, clip.source_app.as_deref())
+                                .should_notify_preview(&clip.hash, clip.source_app.as_deref(), if clip.clip_type==ClipType::Image {clip.thumbnail.as_deref()} else {None})
                         {
                             let app2 = app.clone();
                             let arrival = clip.clone();
@@ -546,6 +546,7 @@ pub fn run() {
             commands::get_shortcut_error,
             commands::get_interaction_status,
             commands::get_clips,
+            commands::locate_clip_in_history,
             commands::get_clip_preview,
             commands::get_clip_by_id,
             commands::get_clip_full_image,
@@ -558,6 +559,7 @@ pub fn run() {
             commands::empty_trash,
             commands::get_storage_stats,
             commands::copy_clip_to_clipboard,
+            commands::copy_selected_text,
             commands::copy_image_base64_to_clipboard,
             commands::save_annotated_image,
             commands::save_image_pdf,

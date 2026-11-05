@@ -3,9 +3,10 @@ import {invoke} from "@tauri-apps/api/core";
 import {listen} from "@tauri-apps/api/event";
 import {AnnotatorModal} from "./AnnotatorModal";
 import type {Clip} from "../types/clip";
+import type {Rectangle} from "../annotation/geometry";
 import "../App.css";
 
-type Snapshot = {id: string; image: string};
+type Snapshot = {id: string; image: string; screens?: Rectangle[]};
 export function RegionCapture() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState("");

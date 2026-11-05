@@ -18,12 +18,31 @@ impl Drop for CaptureGuard {
         CAPTURING.store(false, Ordering::SeqCst);
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct ScreenRect {
     pub x: i32,
     pub y: i32,
     pub width: i32,
     pub height: i32,
+}
+/// Physical bounds of every display in the extended desktop, including negative origins.
+pub fn desktop_rect() -> Result<ScreenRect, String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    let rect = unsafe { ScreenRect {x:GetSystemMetrics(SM_XVIRTUALSCREEN),y:GetSystemMetrics(SM_YVIRTUALSCREEN),width:GetSystemMetrics(SM_CXVIRTUALSCREEN),height:GetSystemMetrics(SM_CYVIRTUALSCREEN)} };
+    pixel_length(rect.width, rect.height)?;
+    Ok(rect)
+}
+pub fn desktop_monitors(bounds: ScreenRect) -> Vec<ScreenRect> {
+    unsafe extern "system" fn collect(_:HMONITOR,_:HDC,rect:*mut windows_sys::Win32::Foundation::RECT,data:isize)->i32 {
+        if let Some(rect)=rect.as_ref(){
+            (*(data as *mut Vec<ScreenRect>)).push(ScreenRect{x:rect.left,y:rect.top,width:rect.right-rect.left,height:rect.bottom-rect.top});
+        }
+        1
+    }
+    let mut monitors=Vec::new();
+    unsafe {EnumDisplayMonitors(std::ptr::null_mut(),std::ptr::null(),Some(collect),&mut monitors as *mut _ as isize);}
+    if monitors.is_empty(){monitors.push(bounds);}
+    monitors
 }
 /// Snapshot the monitor under the pointer, optionally using its taskbar-free bounds.
 pub fn monitor_at(cursor: (i32, i32), exclude_taskbar: bool) -> Result<ScreenRect, String> {
@@ -177,7 +196,7 @@ fn capture_bounds(
 }
 fn pixel_length(width: i32, height: i32) -> Result<usize, String> {
     if width <= 0 || height <= 0 || (width as u64) * (height as u64) > 32_000_000 {
-        return Err("This monitor exceeds the 32 megapixel capture limit".into());
+        return Err("This desktop exceeds the 32 megapixel capture limit".into());
     }
     Ok(width as usize * height as usize * 4)
 }
@@ -234,6 +253,8 @@ pub fn capture_png(rect: ScreenRect) -> Result<Vec<u8>, String> {
             capture.previous = std::ptr::null_mut();
             return Err("Windows could not prepare the screen capture".into());
         }
+        // Display layouts can contain gaps. Never export uninitialized bitmap pixels there.
+        PatBlt(capture.memory,0,0,rect.width,rect.height,BLACKNESS);
         if BitBlt(
             capture.memory,
             0,
@@ -290,6 +311,19 @@ pub fn capture_png(rect: ScreenRect) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn live_extended_desktop_bounds_enclose_all_attached_monitors() {
+        let bounds=desktop_rect().unwrap();
+        let screens=desktop_monitors(bounds);
+        assert!(!screens.is_empty());
+        for screen in &screens {
+            assert!(screen.x>=bounds.x && screen.y>=bounds.y);
+            assert!(screen.x+screen.width<=bounds.x+bounds.width && screen.y+screen.height<=bounds.y+bounds.height);
+        }
+        assert_eq!(screens.iter().map(|screen|screen.x).min(),Some(bounds.x));
+        assert_eq!(screens.iter().map(|screen|screen.y).min(),Some(bounds.y));
+        eprintln!("Extended desktop: {} displays, {}x{} physical pixels",screens.len(),bounds.width,bounds.height);
+    }
     #[test]
     fn capture_guard_rejects_reentry_and_releases_on_drop() {
         let first = CaptureGuard::begin().unwrap();

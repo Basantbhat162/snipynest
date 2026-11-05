@@ -17,6 +17,10 @@ Save PDF uses the pending selection and committed markup, even without Apply cro
 
 A production database regression reproduced two active image Clips from identical RGB and opaque RGBA PNGs. Blob normalization now uses RGBA before hashing. A separate alias table recognizes up to 64 matching-dimension legacy candidates per insert without rewriting their original blobs or IDs. Existing duplicate rows are not automatically deleted. Content changes, including alpha changes, remain separate images. This addresses a reproducible history duplication cause; it does not certify Windows Terminal or Claude Code's own paste/drop behavior.
 
+## 1.6.4 compact capture controls
+
+Area capture has a separate compact presentation over the same Annotator document and handlers. A 34-pixel-wide strip follows the selection's side; a 174 × 34 action row follows its bottom. Placement clamps to the viewport and avoids overlap between the strips. At screen edges the controls can sit inside the selection. Color/stroke, text and less-used tools appear only on request. The full editor remains the presentation for existing images and Capture Pad Quick edit. Popup Escape restores its trigger focus; Escape outside a popup cancels capture. Tool strips are excluded from exported canvas pixels.
+
 ## Verification
 
 See [VERIFICATION.md](../VERIFICATION.md). Browser fixtures use synthetic images and simulated native IPC; they do not establish native window, clipboard, hotkey, mixed-DPI or external-drop acceptance.

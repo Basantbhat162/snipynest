@@ -35,7 +35,7 @@ let clips: Clip[] = Array.from({ length: 125 }, (_, i) => ({
           ? "code"
           : "link",
   text_content:
-    i % 5 === 1
+    i === 116 ? "Unique resource fixture for locating history" : i % 5 === 1
       ? "Remember to review the updated proposal before Friday. The client asked for a simpler onboarding flow."
       : i % 5 === 2
         ? "const selection = history.filter(clip => clip.is_pinned);"
@@ -97,7 +97,12 @@ mockIPC(
                 .toLowerCase()
                 .includes(f.search.toLowerCase())),
         );
+        result.sort((a,b)=>Number(b.is_pinned)-Number(a.is_pinned)||b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id));
         return result.slice(f.offset || 0, (f.offset || 0) + f.limit);
+      }
+      case "locate_clip_in_history": {
+        const ordered=clips.filter(c=>c.is_deleted===payload.trash).sort((a,b)=>Number(b.is_pinned)-Number(a.is_pinned)||b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id));
+        const index=ordered.findIndex(c=>c.id===payload.id);return index<0?null:index;
       }
       case "get_storage_stats":
         return {
@@ -117,6 +122,7 @@ mockIPC(
         return image;
       case "copy_clip_to_clipboard":
         return new URLSearchParams(location.search).get("copyFail") !== "1";
+      case "copy_selected_text": document.body.dataset.copiedSelection=JSON.stringify(payload.ids);return true;
       case "copy_image_base64_to_clipboard":
         copiedPng.src = payload.dataBase64;
         document.body.append(copiedPng);

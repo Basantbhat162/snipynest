@@ -53,6 +53,8 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_clips_type ON clips(clip_type);
             CREATE INDEX IF NOT EXISTS idx_clips_pinned ON clips(is_pinned);
             CREATE INDEX IF NOT EXISTS idx_clips_deleted ON clips(is_deleted);
+            CREATE INDEX IF NOT EXISTS idx_clips_history_order ON clips(is_deleted, is_pinned DESC, created_at DESC, id DESC);
+            CREATE INDEX IF NOT EXISTS idx_clips_capture_order ON clips(is_deleted, created_at DESC, id DESC);
              CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
              CREATE TABLE IF NOT EXISTS image_aliases (original_hash TEXT PRIMARY KEY, normalized_hash TEXT NOT NULL);
              CREATE INDEX IF NOT EXISTS idx_image_aliases_normalized ON image_aliases(normalized_hash);
@@ -170,6 +172,18 @@ impl Database {
         source_app: Option<&str>,
         source_title: Option<&str>,
     ) -> Result<Clip> {
+        // Exact clipboard restores need no PNG encode, thumbnail or blob write.
+        let input_hash=BlobStore::compute_hash(bytes);
+        let existing={
+            let conn=self.conn.lock();
+            conn.query_row("SELECT id FROM clips WHERE clip_type='image' AND is_deleted=0 AND (hash=?1 OR hash IN (SELECT normalized_hash FROM image_aliases WHERE original_hash=?1)) ORDER BY created_at DESC LIMIT 1",params![input_hash],|row|row.get::<_,String>(0)).optional()?
+        };
+        if let Some(id)=existing {
+            if self.get_clip(&id)?.is_some_and(|clip|!clip.is_deleted && clip.file_path.is_some()) &&
+                self.conn.lock().execute("UPDATE clips SET created_at=?1,source_app=?2,source_title=?3 WHERE id=?4 AND is_deleted=0",params![Utc::now().to_rfc3339(),source_app,source_title,id])?==1 {
+                return self.get_clip(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows);
+            }
+        }
         let (hash, dimensions, thumbnail) = self
             .blob_store
             .save_image(bytes)
@@ -187,8 +201,11 @@ impl Database {
             )
             .ok();
 
+        // Never hold the history connection while reading/decoding legacy blobs.
+        drop(conn);
         if existing.is_none() {
             let candidates = {
+                let conn=self.conn.lock();
                 let mut query = conn.prepare("SELECT id,hash FROM clips WHERE clip_type='image' AND is_deleted=0 AND dimensions=?1 AND hash NOT IN (SELECT original_hash FROM image_aliases) ORDER BY created_at DESC LIMIT 64")?;
                 let rows = query.query_map(params![dimensions], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?)))?;
                 rows.collect::<Result<Vec<_>>>()?
@@ -201,12 +218,19 @@ impl Database {
                     Some(BlobStore::compute_hash(png.get_ref()))
                 });
                 if let Some(normalized) = normalized {
-                    conn.execute("INSERT OR REPLACE INTO image_aliases VALUES (?1,?2)", params![original_hash, normalized])?;
+                    self.conn.lock().execute("INSERT OR REPLACE INTO image_aliases VALUES (?1,?2)", params![original_hash, normalized])?;
                     if normalized == hash { existing = Some(id); break; }
                 }
             }
         }
 
+        let conn=self.conn.lock();
+        if let Some(id)=existing.as_ref() {
+            if !conn.query_row("SELECT EXISTS(SELECT 1 FROM clips WHERE id=?1 AND is_deleted=0)",params![id],|row|row.get::<_,bool>(0))? {existing=None;}
+        }
+        if input_hash!=hash {conn.execute("INSERT OR REPLACE INTO image_aliases VALUES (?1,?2)",params![input_hash,hash])?;}
+        // An editor can save concurrently with clipboard ingestion.
+        if existing.is_none() {existing=conn.query_row("SELECT id FROM clips WHERE clip_type='image' AND is_deleted=0 AND hash=?1 ORDER BY created_at DESC LIMIT 1",params![hash],|row|row.get(0)).optional()?;}
         let now = Utc::now().to_rfc3339();
 
         if let Some(existing_id) = existing {
@@ -337,7 +361,8 @@ impl Database {
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty());
-        let query = String::from(
+        let order = if clip_type == Some("capture") { "created_at DESC, id DESC" } else { "is_pinned DESC, created_at DESC, id DESC" };
+        let query = format!(
             "SELECT id, hash, clip_type, substr(text_content, 1, 4096), char_count, byte_size,
                     dimensions, source_app, source_title, created_at, is_pinned,
                     is_deleted, deleted_at, thumbnail
@@ -347,7 +372,7 @@ impl Database {
                 AND (?4 IS NULL OR instr(lower(COALESCE(text_content, '')), lower(?4)) > 0
                     OR instr(lower(COALESCE(source_app, '')), lower(?4)) > 0
                     OR instr(lower(COALESCE(source_title, '')), lower(?4)) > 0)
-             ORDER BY CASE WHEN ?2 = 'capture' THEN 0 ELSE is_pinned END DESC, created_at DESC, id DESC LIMIT ?5 OFFSET ?6",
+             ORDER BY {order} LIMIT ?5 OFFSET ?6",
         );
 
         let mut stmt = conn.prepare(&query)?;
@@ -405,6 +430,18 @@ impl Database {
         }
 
         Ok(clips)
+    }
+
+    /// Position in the unfiltered History order, without loading preceding payloads.
+    pub fn locate_clip(&self, id: &str, trash: bool) -> Result<Option<usize>> {
+        let conn = self.conn.lock();
+        conn.query_row(
+            "SELECT (SELECT COUNT(*) FROM clips c WHERE c.is_deleted=t.is_deleted AND
+             (c.is_pinned>t.is_pinned OR (c.is_pinned=t.is_pinned AND
+             (c.created_at>t.created_at OR (c.created_at=t.created_at AND c.id>t.id)))))
+             FROM clips t WHERE t.id=?1 AND t.is_deleted=?2",
+            params![id, trash], |row| row.get(0),
+        ).optional()
     }
 
     /// Retrieve a single clip by ID
@@ -805,6 +842,27 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[test]
+    fn locating_a_search_result_matches_history_order_across_pages_pins_and_trash() {
+        let dir=test_directory();
+        let db=Database::new(&dir.join("test.db"),&dir.join("blobs")).unwrap();
+        for i in 0..205 {
+            let clip=db.insert_text(&format!("Synthetic clip {i}"),ClipType::Text,None,None).unwrap();
+            db.conn.lock().execute("UPDATE clips SET created_at='2026-01-01T00:00:00Z' WHERE id=?1",params![clip.id]).unwrap();
+            if i%31==0 {db.toggle_pin(&clip.id).unwrap();}
+            if i%17==0 {db.move_to_trash(&clip.id).unwrap();}
+        }
+        for trash in [false,true] {
+            let mut all=db.query_clips(&ClipFilter{trash_only:Some(trash),limit:Some(200),..Default::default()}).unwrap();
+            all.extend(db.query_clips(&ClipFilter{trash_only:Some(trash),limit:Some(200),offset:Some(200),..Default::default()}).unwrap());
+            for (index,clip) in all.iter().enumerate(){
+                assert_eq!(db.locate_clip(&clip.id,trash).unwrap(),Some(index));
+                assert_eq!(db.locate_clip(&clip.id,!trash).unwrap(),None);
+            }
+        }
+        assert_eq!(db.locate_clip("missing",false).unwrap(),None);
+        drop(db);std::fs::remove_dir_all(dir).unwrap();
+    }
     #[test]
     fn text_preserves_whitespace_and_searches_literal_punctuation() {
         let dir = test_directory();

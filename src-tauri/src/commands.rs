@@ -55,8 +55,15 @@ pub async fn undo_clip_batch(state: State<'_, AppState>, token: String) -> Resul
 }
 
 #[tauri::command]
-pub fn get_clips(state: State<'_, AppState>, filter: ClipFilter) -> Result<Vec<Clip>, String> {
-    state.db.query_clips(&filter).map_err(|e| e.to_string())
+pub async fn get_clips(state: State<'_, AppState>, filter: ClipFilter) -> Result<Vec<Clip>, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.query_clips(&filter).map_err(|e| e.to_string())).await.map_err(|e|e.to_string())?
+}
+
+#[tauri::command]
+pub async fn locate_clip_in_history(state: State<'_, AppState>, id: String, trash: bool) -> Result<Option<usize>, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.locate_clip(&id, trash).map_err(|e|e.to_string())).await.map_err(|e|e.to_string())?
 }
 
 #[tauri::command]
@@ -183,8 +190,9 @@ pub fn empty_trash(state: State<'_, AppState>) -> Result<usize, String> {
 }
 
 #[tauri::command]
-pub fn get_storage_stats(state: State<'_, AppState>) -> Result<StorageStats, String> {
-    state.db.get_stats().map_err(|e| e.to_string())
+pub async fn get_storage_stats(state: State<'_, AppState>) -> Result<StorageStats, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || db.get_stats().map_err(|e|e.to_string())).await.map_err(|e|e.to_string())?
 }
 
 #[tauri::command]
@@ -223,6 +231,15 @@ pub async fn copy_clip_to_clipboard(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn copy_selected_text(state:State<'_,AppState>, ids:Vec<String>)->Result<bool,String> {
+    let db=state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let text=crate::storage::selection::text_for_copy(&db,&ids)?;
+        Ok(set_clipboard_text(&text))
+    }).await.map_err(|e|e.to_string())?
 }
 
 #[tauri::command]

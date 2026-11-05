@@ -61,7 +61,7 @@ In 1.6.0 it shows the latest image or PDF capture. Images have a Quick crop butt
 The Capture Pad entry into a transient Annotator session, labelled Quick edit. It starts on Crop and includes all markup tools. Copy exports the pending selection with its annotations directly, Save creates a new image Clip, and Close discards only this transient session without affecting the original or regular-editor Draft.
 
 **Area capture**:
-A transient frozen view of the monitor under the pointer. Selecting an area and adding markup do not write the clipboard or create a Clip until Copy or Save. The Screen snip shortcut opens it; Escape, close and focus loss cancel it.
+A transient frozen view of the extended desktop, bounded to 32 megapixels. A selection can span displays; empty layout gaps appear black. Selecting an area and adding markup do not write the clipboard or create a Clip until Copy or Save. The Screen snip shortcut opens it; right-click Cancel, Escape, close and focus loss cancel it.
 
 **PDF capture**:
 A Companion capture encoded as bounded A4 image pages, stored as a file Clip through an explicit custom clipboard representation. The same clipboard item includes a standard PNG for image paste. It is not a selectable-text webpage printout.
