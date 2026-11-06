@@ -46,6 +46,8 @@ export interface Preferences {
   startAtLogin: boolean;
   snipShortcut?: string;
   quickCaptureShortcut?: string;
+  quickClipboardShortcut?: string;
+  replaceWinV?: boolean;
   historyShortcut?: string;
   padMode?: "arrival" | "always" | "off";
   padPrivacy?: boolean;

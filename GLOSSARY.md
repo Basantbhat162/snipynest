@@ -81,3 +81,9 @@ An opt-in Windows hotkey reservation for selected spare keys. Each assigned bare
 
 **Desktop browser control**:
 The optional Companion Native Messaging connection to a per-user local helper. It routes capture actions to the focused, ready browser session using bounded Windows control messages; captured content continues through the clipboard bridge.
+
+**Quick Clipboard**:
+The compact clipboard-only surface for finding a Clip and pasting it into the app where the user was working. The detailed Sidebar remains the full workspace.
+
+**Paste Session**:
+The temporary association between an open Quick Clipboard and its original destination, allowing one chosen Clip to be delivered once or left copied for manual paste.

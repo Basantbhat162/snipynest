@@ -1,0 +1,42 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {QuickClipboardController} from "../src/lib/quickClipboard.ts";
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+const query={search:"",kind:"all",pinned:false,offset:0};
+const clip=id=>({id,clip_type:"text",text_content:id});
+test("only one native search runs at a time and intermediate queries never become pasteable",async()=>{
+  const calls=[],resolve=[];
+  const controller=new QuickClipboardController(q=>{calls.push(q.search);return new Promise(done=>resolve.push(done));});
+  controller.load(query);
+  controller.load({...query,search:"old"});
+  controller.load({...query,search:"latest"});
+  assert.deepEqual(calls,[""]);
+  assert.equal(controller.getSnapshot().loading,true);
+  resolve.shift()([clip("stale")]);await tick();
+  assert.deepEqual(calls,["","latest"]);
+  assert.deepEqual(controller.getSnapshot().clips,[]);
+  resolve.shift()([clip("correct")]);await tick();
+  assert.equal(controller.getSnapshot().clips[0].id,"correct");
+  assert.equal(controller.getSnapshot().loading,false);
+});
+test("closing invalidates a late result and reopening can use a bounded first-page cache",async()=>{
+  let done;
+  const controller=new QuickClipboardController(()=>new Promise(resolve=>{done=resolve;}));
+  controller.open();done([clip("cached")]);await tick();
+  controller.close();controller.open();
+  assert.equal(controller.getSnapshot().clips[0].id,"cached");
+  done([clip("refreshed")]);await tick();
+  controller.load({...query,search:"private"});controller.close();done([clip("discard")]);await tick();
+  assert.equal(controller.getSnapshot().clips.length,0);
+  controller.open();assert.equal(controller.getSnapshot().clips[0].id,"refreshed");
+});
+test("pinning preserves row order and a failed query is recoverable",async()=>{
+  let fail=false;
+  const controller=new QuickClipboardController(async()=>{if(fail)throw new Error("busy");return[clip("a"),clip("b")];});
+  controller.open();await tick();controller.updatePin("b",true);
+  assert.deepEqual(controller.getSnapshot().clips.map(c=>c.id),["a","b"]);
+  assert.equal(controller.getSnapshot().clips[1].is_pinned,true);
+  fail=true;controller.load({...query,search:"new"});await tick();
+  assert.match(controller.getSnapshot().error,/busy/);
+  fail=false;controller.load(query);await tick();assert.equal(controller.getSnapshot().clips.length,2);
+});

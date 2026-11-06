@@ -51,17 +51,26 @@ pub fn open_clipboard_with_retry(hwnd: HWND, max_retries: usize) -> bool {
 
 /// Check if clipboard content is flagged as sensitive (password managers)
 pub fn is_clipboard_ignored() -> bool {
-    let ignore_name: Vec<u16> = "Clipboard Viewer Ignore\0".encode_utf16().collect();
-    let exclude_name: Vec<u16> = "ExcludeClipboardContentFromMonitor\0"
-        .encode_utf16()
-        .collect();
+    has_exclusion_marker(|name| unsafe {
+        let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+        let format = RegisterClipboardFormatW(name.as_ptr());
+        format != 0 && IsClipboardFormatAvailable(format) != 0
+    })
+}
 
-    unsafe {
-        let fmt1 = RegisterClipboardFormatW(ignore_name.as_ptr());
-        let fmt2 = RegisterClipboardFormatW(exclude_name.as_ptr());
+fn has_exclusion_marker(mut available: impl FnMut(&str) -> bool) -> bool {
+    ["Clipboard Viewer Ignore", "ExcludeClipboardContentFromMonitorProcessing", "ExcludeClipboardContentFromMonitor"]
+        .into_iter().any(&mut available)
+}
 
-        (fmt1 != 0 && IsClipboardFormatAvailable(fmt1) != 0)
-            || (fmt2 != 0 && IsClipboardFormatAvailable(fmt2) != 0)
+#[cfg(test)]
+mod exclusion_tests {
+    #[test]
+    fn canonical_and_legacy_producer_exclusions_are_respected() {
+        for marker in ["ExcludeClipboardContentFromMonitorProcessing", "ExcludeClipboardContentFromMonitor", "Clipboard Viewer Ignore"] {
+            assert!(super::has_exclusion_marker(|name| name == marker), "Missing producer marker: {marker}");
+        }
+        assert!(!super::has_exclusion_marker(|_| false));
     }
 }
 
@@ -356,10 +365,18 @@ unsafe fn mark_own_clipboard() {
             GlobalFree(handle);
         }
     }
+    LAST_WRITE_SEQUENCE.with(|value| value.set(windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber()));
 }
+
+thread_local! { static LAST_WRITE_SEQUENCE: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+/// Sequence captured while our publisher still holds the clipboard lock, on this thread.
+pub fn last_write_sequence() -> u32 { LAST_WRITE_SEQUENCE.with(|value| value.get()) }
 
 /// Publish an independently staged file for native file paste.
 pub fn set_clipboard_file(path: &std::path::Path) -> bool {
+    set_clipboard_file_if(path, || true)
+}
+pub fn set_clipboard_file_if(path: &std::path::Path, allowed: impl Fn() -> bool) -> bool {
     let wide: Vec<u16> = path
         .as_os_str()
         .to_string_lossy()
@@ -376,6 +393,7 @@ pub fn set_clipboard_file(path: &std::path::Path) -> bool {
     if owner.0.is_null() || !open_clipboard_with_retry(owner.0, 5) {
         return false;
     }
+    if !allowed() { unsafe { CloseClipboard(); } return false; }
     unsafe {
         let handle = GlobalAlloc(GMEM_MOVEABLE, bytes.len());
         let mut success = false;
@@ -401,10 +419,14 @@ pub fn set_clipboard_file(path: &std::path::Path) -> bool {
 
 /// Set Unicode text to the Windows clipboard
 pub fn set_clipboard_text(text: &str) -> bool {
+    set_clipboard_text_if(text, || true)
+}
+pub fn set_clipboard_text_if(text: &str, allowed: impl Fn() -> bool) -> bool {
     let owner = ClipboardOwner::new();
     if owner.0.is_null() || !open_clipboard_with_retry(owner.0, 5) {
         return false;
     }
+    if !allowed() { unsafe { CloseClipboard(); } return false; }
 
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     let bytes_len = wide.len() * 2;
@@ -444,6 +466,9 @@ pub fn set_clipboard_text(text: &str) -> bool {
 
 /// Set image to Windows clipboard supporting registered PNG, CF_DIBV5, and CF_DIB
 pub fn set_clipboard_image(bytes: &[u8]) -> bool {
+    set_clipboard_image_if(bytes, || true)
+}
+pub fn set_clipboard_image_if(bytes: &[u8], allowed: impl Fn() -> bool) -> bool {
     let Ok(decoded) = crate::storage::blob::decode_image(bytes) else {
         return false;
     };
@@ -451,6 +476,7 @@ pub fn set_clipboard_image(bytes: &[u8]) -> bool {
     if owner.0.is_null() || !open_clipboard_with_retry(owner.0, 5) {
         return false;
     }
+    if !allowed() { unsafe { CloseClipboard(); } return false; }
 
     let mut set_any = false;
 

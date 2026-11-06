@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.0 — unreleased
+
+- Added Quick Clipboard: a compact, keyboard-accessible view with search, five type filters, pins, copy-only, Clear/Undo and Open full workspace. It reuses the main WebView and queries bounded metadata.
+- Added destination-checked one-action paste, with clipboard-sequence and modifier guards and a manual-paste fallback. The full Sidebar shortcut remains independent.
+- Added a configurable Quick Clipboard shortcut and experimental opt-in Win+V replacement while the app runs. No Windows history or registry remapping changes are made.
+- Screen snip disables per-window DWM transitions, sends a bounded bitmap through binary IPC, defers its undo baseline until needed, and encodes only the selected region for unannotated Copy. Confirmed clipboard success closes the overlay before bounded archival work.
+- Corrected the canonical Windows clipboard-monitor exclusion marker while retaining legacy marker compatibility.
+
 ## 1.6.5 — unreleased
 
 - Added Show in history on search results, with destination-page scrolling and a visible position outline. Stale results clear as search changes.

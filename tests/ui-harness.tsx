@@ -55,6 +55,8 @@ const isPad = new URLSearchParams(location.search).get("surface") === "pad";
 const isQuickCrop = new URLSearchParams(location.search).get("surface") === "crop";
 const isRegion = new URLSearchParams(location.search).get("surface") === "region";
 const isPdf = new URLSearchParams(location.search).get("surface") === "pdf";
+const isQuick = new URLSearchParams(location.search).get("surface") === "quick";
+let quickBatch: string[]=[];
 const copiedPng = document.createElement("img");
 copiedPng.id = "fixture-copy"; copiedPng.alt = "Copied crop verification";
 copiedPng.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none";
@@ -69,6 +71,22 @@ mockWindows(isPad ? "capture-pad" : "main");
 mockIPC(
   async (command, payload: any) => {
     switch (command) {
+      case "show_quick_clipboard": document.body.dataset.quickShown="true";return;
+      case "dismiss_quick_clipboard": document.body.dataset.closed="true";return;
+      case "open_quick_workspace": document.body.dataset.workspace=payload.clipId??"all";return;
+      case "get_quick_preview": return clips.find(c=>c.id===payload.id)?.clip_type==="image"?image:null;
+      case "get_quick_clips": {
+        const result=clips.filter(c=>!c.is_deleted&&(!payload.pinned||c.is_pinned)&&(!payload.kind||c.clip_type===payload.kind)&&(!payload.search||(c.text_content||"").toLowerCase().includes(payload.search.toLowerCase())));
+        return result.slice(payload.offset,payload.offset+40).map(c=>({...c,thumbnail:undefined,file_path:undefined}));
+      }
+      case "paste_quick_clip": {
+        const calls=JSON.parse(document.body.dataset.quickCalls||"[]");calls.push(payload);document.body.dataset.quickCalls=JSON.stringify(calls);
+        if(payload.copyOnly)return {pasted:false,message:"Copied. Paste with Ctrl+V."};
+        document.body.dataset.closed="true";return {pasted:true};
+      }
+      case "prepare_clip_batch": quickBatch=clips.filter(c=>!c.is_deleted&&!c.is_pinned).map(c=>c.id);return {token:"quick-batch",count:quickBatch.length};
+      case "trash_clip_batch": clips.forEach(c=>{if(quickBatch.includes(c.id))c.is_deleted=true;});return quickBatch.length;
+      case "undo_clip_batch": clips.forEach(c=>{if(quickBatch.includes(c.id))c.is_deleted=false;});return quickBatch.length;
       case "get_pad_unread": return 3;
       case "show_region_capture": document.body.dataset.regionShown = "true"; return;
       case "cancel_region_capture": document.body.dataset.closed = "true"; return;
@@ -170,6 +188,12 @@ mockIPC(
 const { App } = await import("../src/App");
 const { CapturePad } = await import("../src/components/CapturePad");
 const { AnnotatorModal } = await import("../src/components/AnnotatorModal");
+const { QuickClipboard } = await import("../src/components/QuickClipboard");
+const { QuickClipboardController } = await import("../src/lib/quickClipboard");
+function QuickFixture(){
+  const [controller]=React.useState(()=>new QuickClipboardController(q=>import("@tauri-apps/api/core").then(({invoke})=>invoke<Clip[]>("get_quick_clips",{...q,kind:q.kind==="all"?null:q.kind}))));
+  return <QuickClipboard session={{id:"fixture-quick",can_paste:true}} controller={controller}/>;
+}
 function PdfFixture() {
   const [url,setUrl] = React.useState("");
   return <main><h1>PDF capture verification</h1><p>Synthetic 960 × 2400 capture. Production PDF encoder; no clipboard writes.</p><button onClick={async()=>{
@@ -186,6 +210,6 @@ function PdfFixture() {
 }
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {isPad ? <><div style={{ width:216, height:112 }}><CapturePad /></div><p id="fixture-status" role="status">Pad fixture: native actions are simulated</p></> : isQuickCrop || isRegion ? <AnnotatorModal regionCapture={isRegion ? {id:"fixture-region", image} : undefined} quickCrop clip={clips[0]} onClose={()=>{document.body.dataset.closed="true";}} onSave={async png=>{document.body.dataset.saved=png;}} onCopyResult={async png=>{copiedPng.src=png;document.body.append(copiedPng);}}/> : isPdf ? <PdfFixture/> : <App />}
+    {isQuick ? <QuickFixture/> : isPad ? <><div style={{ width:216, height:112 }}><CapturePad /></div><p id="fixture-status" role="status">Pad fixture: native actions are simulated</p></> : isQuickCrop || isRegion ? <AnnotatorModal regionCapture={isRegion ? {id:"fixture-region", image} : undefined} quickCrop clip={clips[0]} onClose={()=>{document.body.dataset.closed="true";}} onSave={async png=>{document.body.dataset.saved=png;}} onCopyResult={async png=>{copiedPng.src=png;document.body.append(copiedPng);}}/> : isPdf ? <PdfFixture/> : <App />}
   </React.StrictMode>,
 );

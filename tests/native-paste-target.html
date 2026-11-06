@@ -1,0 +1,13 @@
+<!doctype html><html lang="en"><meta charset="UTF-8"><title>SnipyNest native paste fixture</title>
+<style>body{font:18px Segoe UI,sans-serif;background:#eaf0f4;color:#172b3a;margin:50px}button{padding:12px;font:inherit}textarea{display:block;width:90%;height:220px;margin-top:24px;font:18px Consolas,monospace}p{max-width:700px;line-height:1.5}</style>
+<h1>SnipyNest native paste fixture</h1><p>This local test page contains synthetic text only. Copy the fixture, focus the destination and invoke Quick Clipboard.</p>
+<button id="copy">Copy synthetic fixture</button><p id="status" role="status">Ready</p>
+<label for="destination">Paste destination</label><textarea id="destination" spellcheck="false"></textarea>
+<script>
+const expected="SnipyNest native paste fixture 1.7.0\nOne selection, one paste.";
+let pastes=0,enters=0;
+document.querySelector("#copy").onclick=async()=>{await navigator.clipboard.writeText(expected);document.querySelector("#status").textContent="Synthetic fixture copied";};
+document.querySelector("#destination").addEventListener("paste",()=>{pastes++;});
+document.querySelector("#destination").addEventListener("keydown",event=>{if(event.key==="Enter")enters++;});
+window.fixtureResult=()=>({matches:document.querySelector("#destination").value===expected,pastes,enters,length:document.querySelector("#destination").value.length});
+</script></html>

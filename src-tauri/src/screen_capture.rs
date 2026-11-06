@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Graphics::Gdi::*;
 static CAPTURING: AtomicBool = AtomicBool::new(false);
+pub fn in_progress() -> bool { CAPTURING.load(Ordering::SeqCst) }
 pub struct CaptureGuard;
 impl CaptureGuard {
     pub fn begin() -> Result<Self, String> {
@@ -18,7 +19,7 @@ impl Drop for CaptureGuard {
         CAPTURING.store(false, Ordering::SeqCst);
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ScreenRect {
     pub x: i32,
     pub y: i32,
@@ -230,7 +231,54 @@ fn bgra_to_rgba(pixels: &mut [u8]) {
         pixel[3] = 255;
     }
 }
+/// A bounded, top-down opaque BGRA frame. BMP transport needs no PNG/base64 work.
+pub struct CaptureFrame {
+    pub width: i32,
+    pub height: i32,
+    bmp: Vec<u8>,
+}
+impl CaptureFrame {
+    pub fn from_bgra(width: i32, height: i32, mut pixels: Vec<u8>) -> Result<Self, String> {
+        if pixels.len() != pixel_length(width, height)? { return Err("Invalid frame length".into()); }
+        for pixel in pixels.chunks_exact_mut(4) { pixel[3] = 255; }
+        let mut bmp = vec![0u8; 54];
+        bmp[..2].copy_from_slice(b"BM");
+        bmp[2..6].copy_from_slice(&((54 + pixels.len()) as u32).to_le_bytes());
+        bmp[10..14].copy_from_slice(&54u32.to_le_bytes());
+        bmp[14..18].copy_from_slice(&40u32.to_le_bytes());
+        bmp[18..22].copy_from_slice(&width.to_le_bytes());
+        bmp[22..26].copy_from_slice(&(-height).to_le_bytes());
+        bmp[26..28].copy_from_slice(&1u16.to_le_bytes());
+        bmp[28..30].copy_from_slice(&32u16.to_le_bytes());
+        bmp[34..38].copy_from_slice(&(pixels.len() as u32).to_le_bytes());
+        bmp.append(&mut pixels);
+        Ok(Self { width, height, bmp })
+    }
+    pub fn bmp(&self) -> &[u8] { &self.bmp }
+    pub fn png(&self, selection: ScreenRect) -> Result<Vec<u8>, String> {
+        if selection.x < 0 || selection.y < 0 || selection.width < 1 || selection.height < 1
+            || i64::from(selection.x) + i64::from(selection.width) > i64::from(self.width)
+            || i64::from(selection.y) + i64::from(selection.height) > i64::from(self.height) {
+            return Err("The selection is outside this capture".into());
+        }
+        let mut pixels = Vec::with_capacity(pixel_length(selection.width, selection.height)?);
+        for y in selection.y..selection.y + selection.height {
+            let start = 54 + (y as usize * self.width as usize + selection.x as usize) * 4;
+            pixels.extend_from_slice(&self.bmp[start..start + selection.width as usize * 4]);
+        }
+        bgra_to_rgba(&mut pixels);
+        let image = image::RgbaImage::from_raw(selection.width as u32, selection.height as u32, pixels)
+            .ok_or("Invalid selection dimensions")?;
+        let mut bytes = Vec::new();
+        image.write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png).map_err(|e| e.to_string())?;
+        if bytes.len() > crate::storage::blob::MAX_ENCODED_IMAGE_BYTES { return Err("Image exceeds the 64 MiB limit".into()); }
+        Ok(bytes)
+    }
+}
 pub fn capture_png(rect: ScreenRect) -> Result<Vec<u8>, String> {
+    capture_frame(rect)?.png(ScreenRect { x: 0, y: 0, ..rect })
+}
+pub fn capture_frame(rect: ScreenRect) -> Result<CaptureFrame, String> {
     let length = pixel_length(rect.width, rect.height)?;
     let mut capture = GdiCapture {
         screen: std::ptr::null_mut(),
@@ -293,24 +341,45 @@ pub fn capture_png(rect: ScreenRect) -> Result<Vec<u8>, String> {
         }
         // Pixel transfer is complete; release the native bitmap before PNG encoding.
         drop(capture);
-        bgra_to_rgba(&mut pixels);
-        let image = image::RgbaImage::from_raw(rect.width as u32, rect.height as u32, pixels)
-            .ok_or("Invalid screen dimensions")?;
-        let mut bytes = Vec::new();
-        image
-            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
-            .map_err(|e| e.to_string())?;
-        if bytes.len() > crate::storage::blob::MAX_ENCODED_IMAGE_BYTES {
-            return Err(
-                "This screenshot exceeds the 64 MiB image limit. Use a smaller screen snip.".into(),
-            );
-        }
-        Ok(bytes)
+        CaptureFrame::from_bgra(rect.width, rect.height, pixels)
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn binary_frame_and_native_crop_preserve_every_source_pixel() {
+        let frame=CaptureFrame::from_bgra(3,2,vec![3,2,1,0, 6,5,4,0, 9,8,7,0, 12,11,10,0, 15,14,13,0, 18,17,16,0]).unwrap();
+        let bmp=image::load_from_memory_with_format(frame.bmp(),image::ImageFormat::Bmp).unwrap().to_rgba8();
+        assert_eq!(bmp.get_pixel(0,0).0,[1,2,3,255]);
+        assert_eq!(bmp.get_pixel(2,1).0,[16,17,18,255]);
+        let png=frame.png(ScreenRect{x:1,y:0,width:2,height:2}).unwrap();
+        let cropped=image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!(cropped.dimensions(),(2,2));
+        for y in 0..2 {for x in 0..2 {assert_eq!(cropped.get_pixel(x,y),bmp.get_pixel(x+1,y));}}
+        assert!(frame.png(ScreenRect{x:-1,y:0,width:2,height:2}).is_err());
+        assert!(frame.png(ScreenRect{x:1,y:0,width:i32::MAX,height:2}).is_err());
+        assert!(CaptureFrame::from_bgra(3,2,vec![0;4]).is_err());
+    }
+    #[test]
+    #[ignore="Synthetic encoding benchmark; run explicitly, not a latency assertion"]
+    fn synthetic_frame_transport_benchmark() {
+        for (width,height) in [(1920,1080),(3840,2160)] {
+            let pixels:Vec<u8>=(0..width*height*4).map(|i|((i*31+i/103)%256) as u8).collect();
+            let mut binary=Vec::new(); let mut compressed=Vec::new();
+            for _ in 0..10 {
+                let start=std::time::Instant::now();
+                let frame=CaptureFrame::from_bgra(width,height,pixels.clone()).unwrap();
+                std::hint::black_box(frame.bmp().to_vec());
+                binary.push(start.elapsed().as_secs_f64()*1000.);
+                let start=std::time::Instant::now();
+                std::hint::black_box(frame.png(ScreenRect{x:0,y:0,width,height}).unwrap());
+                compressed.push(start.elapsed().as_secs_f64()*1000.);
+            }
+            binary.sort_by(f64::total_cmp);compressed.sort_by(f64::total_cmp);
+            eprintln!("Synthetic {width}x{height}: BMP construction+binary copy median={:.2}ms, PNG compression alone median={:.2}ms",binary[5],compressed[5]);
+        }
+    }
     #[test]
     fn live_extended_desktop_bounds_enclose_all_attached_monitors() {
         let bounds=desktop_rect().unwrap();
@@ -377,6 +446,7 @@ pub async fn capture_monitor(app: tauri::AppHandle) -> Result<(), String> {
             )?;
             let area = crate::window::monitor_work_area_at((cursor.x, cursor.y));
             if let Some(main) = handle.get_webview_window("main") {
+                crate::quick_clipboard::dismiss(&handle, None)?;
                 crate::commands::hide_history_window(&main)?;
             }
             if handle.get_webview_window("capture-pad").is_some() {

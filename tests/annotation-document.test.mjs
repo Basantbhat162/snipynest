@@ -86,6 +86,24 @@ const redact = {
   width: 2,
 };
 
+test("area capture defers the undo baseline allocation while retaining exact copy, markup and undo pixels", () => {
+  const allocated=[];
+  const previous=globalThis.document;
+  globalThis.document={createElement:()=>{const canvas=new PixelCanvas();allocated.push(canvas);return canvas;}};
+  try {
+    const editor=new AnnotationDocument(image(),true);
+    assert.equal(allocated.filter(canvas=>canvas.width>0).length,1);
+    assert.equal(editor.hasEdits,false);
+    assert.deepEqual(JSON.parse(editor.exportPng(crop.crop)).pixels,["p5","p6","p9","p10"]);
+    editor.commit(redact);
+    assert.equal(editor.hasEdits,true);
+    editor.undo();
+    assert.deepEqual(JSON.parse(editor.exportPng()).pixels,image().pixels);
+    editor.dispose();
+    assert.ok(allocated.every(canvas=>canvas.width===0&&canvas.height===0));
+  } finally {globalThis.document=previous;}
+});
+
 test("crop exports only source pixels at original resolution and undo restores dimensions", () => {
   const editor = new AnnotationDocument(image());
   editor.commit(crop);

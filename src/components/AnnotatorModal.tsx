@@ -35,12 +35,13 @@ import {RegionToolbar} from "./RegionToolbar";
 import {captureScreen} from "../annotation/region-layout";
 
 interface AnnotatorModalProps {
-  regionCapture?: {id: string; image: string; screens?: Rectangle[]};
+  regionCapture?: {id: string; image: string; screens?: Rectangle[]; sourceDecoded?:()=>void};
   quickCrop?: boolean;
   clip: Clip | null;
   onClose: () => void;
   onSave: (dataBase64: string, originalId?: string) => Promise<void>;
   onCopyResult: (dataBase64: string) => Promise<void>;
+  onCopySelection?: (selection: Rectangle) => Promise<void>;
 }
 const tools = [
   { id: "crop", label: "Crop", icon: Crop },
@@ -73,10 +74,12 @@ export function AnnotatorModal({
   onClose,
   onSave,
   onCopyResult,
+  onCopySelection,
 }: AnnotatorModalProps) {
   const [mode, setMode] = useState<"inline"|"window"|"fullscreen">("inline");
   const [closePrompt, setClosePrompt] = useState(false);
   const closingRef = useRef(false);
+  const shownRef = useRef(false);
   const promptRef = useRef<HTMLDivElement>(null);
   const spaceHeld = useRef(false);
   const switchMode = async (next: "inline"|"window"|"fullscreen") => {
@@ -184,6 +187,7 @@ export function AnnotatorModal({
     gestureRef.current = null;
     cropDrag.current = null;
     closingRef.current = false;
+    shownRef.current = false;
     setTool("crop");
     setAspect(0);
     setCropMode(regionCapture ? "draw" : "adjust");
@@ -226,9 +230,10 @@ export function AnnotatorModal({
           loadedImage.src = "";
           return;
         }
-        documentRef.current = new AnnotationDocument(loadedImage);
+        documentRef.current = new AnnotationDocument(loadedImage, !!regionCapture);
         setCrop(regionCapture ? null : initialCrop(loadedImage.width, loadedImage.height));
         loadedImage.src = "";
+        regionCapture?.sourceDecoded?.();
         setRevision((value) => value + 1);
       } catch (loadError) {
         if (active) setError(messageOf(loadError));
@@ -245,15 +250,18 @@ export function AnnotatorModal({
   }, [clip?.id, loadAttempt]);
 
   useEffect(() => {
-    if (regionCapture && image && !loading) {
-      const frame = requestAnimationFrame(() => { void invoke("show_region_capture", {id: regionCapture.id}).catch(error => setError(messageOf(error))); });
-      return () => cancelAnimationFrame(frame);
+    if (regionCapture && image && !loading && viewport.width>1 && viewport.height>1 && !shownRef.current) {
+      shownRef.current=true;
+      // The layout effects have already sized and painted the canvas. Hidden WebViews
+      // can throttle rAF; waiting for another frame here delays the hotkey unnecessarily.
+      void invoke("show_region_capture", {id: regionCapture.id}).catch(error => setError(messageOf(error)));
     }
-  }, [regionCapture?.id, loading]);
+  }, [regionCapture?.id, loading, viewport.width, viewport.height]);
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
+    setViewport({width:stage.clientWidth,height:stage.clientHeight});
     const observer = new ResizeObserver(([entry]) =>
       setViewport({
         width: entry.contentRect.width,
@@ -628,6 +636,10 @@ export function AnnotatorModal({
     setError("");
     setStatus("");
     try {
+      if (action === "copy" && regionCapture && crop && onCopySelection && !documentRef.current.hasEdits) {
+        await onCopySelection(crop);
+        return;
+      }
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => setTimeout(resolve, 0)),
       );

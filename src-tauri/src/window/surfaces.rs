@@ -232,6 +232,7 @@ pub fn hide_pad_native(app: &AppHandle) -> Result<(), String> {
 }
 #[tauri::command]
 pub fn open_from_pad(app: AppHandle, quick_crop_id: Option<String>) -> Result<(), String> {
+    crate::quick_clipboard::dismiss(&app, None)?;
     if let Some(id) = quick_crop_id.as_ref() {
         let clip = app
             .state::<crate::AppState>()
@@ -393,6 +394,8 @@ pub fn history_closed(app: &AppHandle) {
 /// Called on the UI thread after sleep/resume or display topology changes.
 /// Do not replay history, rewrite the clipboard or clear an active native-operation guard.
 pub fn recover_after_resume(app: &AppHandle) {
+    app.state::<crate::AppState>().quick_keys.resumed();
+    let _ = crate::quick_clipboard::dismiss(app, None);
     for label in ["main", "capture-pad"] {
         if let Some(window) = app.get_webview_window(label) {
             if let Ok(hwnd) = window.hwnd() {
