@@ -721,7 +721,7 @@ impl Database {
             .optional()?;
         value
             .map(|json| {
-                let preferences: crate::preferences::Preferences = serde_json::from_str(&json)
+                let preferences = crate::preferences::Preferences::from_stored_json(&json)
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
                 preferences.validate().map_err(|e| {
                     rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(e)))
@@ -745,6 +745,18 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_preferences_keep_custom_shortcuts_and_paused_capture_when_quick_default_conflicts() {
+        let dir=test_directory();
+        let db=Database::new(dir.join("clips.db"),dir.join("blobs")).unwrap();
+        db.conn.lock().execute("INSERT INTO settings(key,value) VALUES ('preferences',?1)", [r#"{"historyShortcut":"Ctrl+Alt+V","capturePaused":true,"startAtLogin":true}"#]).unwrap();
+        let prefs=db.load_preferences().unwrap();
+        assert!(prefs.capture_paused&&prefs.start_at_login);
+        assert_eq!(prefs.history_shortcut,"Ctrl+Alt+V");
+        assert_ne!(prefs.quick_clipboard_shortcut,prefs.history_shortcut);
+        assert!(!prefs.replace_win_v);
+        drop(db);let _=std::fs::remove_dir_all(dir);
+    }
 
     fn test_directory() -> std::path::PathBuf {
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

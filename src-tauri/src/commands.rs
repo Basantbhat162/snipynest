@@ -202,35 +202,41 @@ pub async fn copy_clip_to_clipboard(
 ) -> Result<bool, String> {
     let db = state.db.clone();
     let stager = state.stager.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || copy_stored_clip(&db, &stager, &id))
+        .await.map_err(|e| e.to_string())?
+}
+
+pub(crate) fn copy_stored_clip(db: &crate::storage::Database, stager: &crate::drag_drop::DragDropStager, id: &str) -> Result<bool, String> {
+    copy_stored_clip_if(db, stager, id, || true)
+}
+pub(crate) fn copy_stored_clip_if(db: &crate::storage::Database, stager: &crate::drag_drop::DragDropStager, id: &str, allowed: impl Fn() -> bool) -> Result<bool, String> {
         if let Some(clip) = db.get_clip(&id).map_err(|e| e.to_string())? {
+            if clip.is_deleted { return Err("This Clip is in Trash".into()); }
             match clip.clip_type {
                 ClipType::File => {
                     let paths = stager
                         .prepare_drag_files(&db, &[clip.id])
                         .map_err(|e| e.to_string())?;
-                    return Ok(crate::clipboard::set_clipboard_file(
+                    return Ok(crate::clipboard::win32::set_clipboard_file_if(
                         paths.first().ok_or("The PDF is missing")?,
+                        allowed,
                     ));
                 }
                 ClipType::Image => {
                     let path = db.get_blob_store().get_blob_path(&clip.hash);
                     if path.exists() {
                         let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-                        return Ok(set_clipboard_image(&bytes));
+                        return Ok(crate::clipboard::win32::set_clipboard_image_if(&bytes, allowed));
                     }
                 }
                 _ => {
                     if let Some(text) = clip.text_content {
-                        return Ok(set_clipboard_text(&text));
+                        return Ok(crate::clipboard::win32::set_clipboard_text_if(&text, allowed));
                     }
                 }
             }
         }
         Ok(false)
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -509,6 +515,24 @@ fn update_preferences_inner(
     app: AppHandle,
     preferences: crate::preferences::Preferences,
 ) -> Result<crate::preferences::Preferences, String> {
+    preferences.validate()?;
+    let previous = app.state::<AppState>().preferences.read().clone();
+    let changed = previous.quick_clipboard_shortcut != preferences.quick_clipboard_shortcut || previous.replace_win_v != preferences.replace_win_v
+        || app.state::<AppState>().quick_keys.error.lock().is_some();
+    if changed { app.state::<AppState>().quick_keys.apply(&preferences.quick_clipboard_shortcut, preferences.replace_win_v)?; }
+    let result = update_preferences_core(app.clone(), preferences);
+    if result.is_err() && changed {
+        if let Err(error) = app.state::<AppState>().quick_keys.apply(&previous.quick_clipboard_shortcut, previous.replace_win_v) {
+            return Err(format!("Settings were not saved. Quick Clipboard shortcut could not be restored: {error}"));
+        }
+    }
+    result
+}
+
+fn update_preferences_core(
+    app: AppHandle,
+    preferences: crate::preferences::Preferences,
+) -> Result<crate::preferences::Preferences, String> {
     let state = app.state::<AppState>();
     preferences.validate()?;
     let mut current = state.preferences.write();
@@ -630,6 +654,13 @@ pub fn toggle_sidebar(app: AppHandle) -> Result<(), String> {
 }
 
 pub fn toggle_window_visibility(window: &WebviewWindow) {
+    if crate::quick_clipboard::active(window.app_handle()) {
+        let _ = crate::quick_clipboard::dismiss(window.app_handle(), None);
+        reposition_sidebar_to_active_display(window);
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
     if window
         .state::<AppState>()
         .editor_expanded
@@ -684,6 +715,7 @@ pub fn get_interaction_status(state: State<'_, AppState>) -> bool {
 
 #[tauri::command]
 pub fn get_shortcut_error(state: State<'_, AppState>) -> Option<String> {
+    if let Some(error)=state.quick_keys.error.lock().clone(){return Some(error);}
     state
         ._listener
         .read()

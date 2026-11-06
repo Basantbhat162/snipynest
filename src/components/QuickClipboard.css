@@ -1,0 +1,40 @@
+.full-workspace { height:100dvh; }
+.full-workspace[hidden] { display:none; }
+.quick-clipboard { height:100dvh; width:100%; min-width:0; display:flex; flex-direction:column; gap:8px; padding:10px; overflow:hidden; background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:10px; font-size:13px; }
+.quick-clipboard button { border:0; background:transparent; color:inherit; border-radius:5px; transition:none; }
+.quick-clipboard button:hover { background:var(--raised); }
+.quick-clipboard header { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:28px; }
+.quick-clipboard header strong { font-size:14px; font-weight:600; }
+.quick-clipboard header>div { display:flex; gap:2px; }
+.quick-clipboard header button { height:30px; width:30px; display:grid; place-items:center; }
+.quick-search { display:flex; flex-shrink:0; align-items:center; gap:8px; padding:7px 10px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--muted); }
+.quick-search:focus-within { border-color:var(--accent); }
+.quick-search input { width:100%; min-width:0; border:0; outline:none; background:transparent; color:var(--text); font-size:13px; }
+.quick-clipboard nav { display:flex; align-items:center; gap:2px; flex-shrink:0; }
+.quick-clipboard nav button { min-width:0; padding:6px 8px; font-size:12px; font-weight:500; }
+.quick-clipboard nav [aria-pressed="true"] { color:var(--accent); background:var(--accent-surface); }
+.quick-clipboard nav .quick-pinned { margin-left:auto; padding:7px; display:grid; place-items:center; }
+.quick-rows { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.quick-row { display:flex; align-items:center; border-bottom:1px solid var(--border); min-height:68px; border-radius:5px; }
+.quick-row[data-active="true"] { background:var(--selected); box-shadow:inset 2px 0 var(--accent); }
+.quick-clipboard .quick-paste { flex:1; display:flex; align-items:center; align-self:stretch; gap:9px; min-width:0; text-align:left; padding:8px; border-radius:5px 0 0 5px; }
+.quick-content { display:block; flex:1; min-width:0; }
+.quick-text { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; line-height:1.4; max-height:2.8em; white-space:pre-wrap; }
+.quick-code { font-family:Consolas,monospace; font-size:12px; }
+.quick-content small { display:block; color:var(--muted); font-size:10.5px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; margin-top:4px; font-variant-numeric:tabular-nums; }
+.quick-thumbnail { width:48px; height:48px; display:grid; place-items:center; flex-shrink:0; color:var(--muted); }
+.quick-thumbnail img { max-width:100%; max-height:100%; object-fit:contain; outline:1px solid oklch(0 0 0 / .1); }
+:root[data-theme="dark"] .quick-thumbnail img { outline-color:oklch(1 0 0 / .1); }
+.quick-row-actions { display:flex; flex-direction:column; flex-shrink:0; padding:2px; }
+.quick-row-actions button { width:28px; height:28px; display:grid; place-items:center; color:var(--muted); }
+.quick-row-actions [aria-pressed="true"] { color:var(--accent); background:var(--accent-surface); }
+.quick-clipboard footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px; border-top:1px solid var(--border); padding-top:8px; flex-shrink:0; font-size:10.5px; color:var(--muted); }
+.quick-empty { color:var(--muted); padding:22px 10px; text-align:center; }
+.quick-feedback { display:flex; align-items:center; flex-wrap:wrap; gap:6px; font-size:12px; padding:8px; background:var(--accent-surface); border-radius:5px; overflow-wrap:anywhere; flex-shrink:0; max-height:90px; overflow:auto; }
+.quick-feedback.error { background:var(--danger-surface); color:var(--danger); }
+.quick-feedback button,.quick-clear button { padding:6px 8px; text-decoration:underline; }
+.quick-clear { flex:1; min-height:0; overflow:auto; padding:12px 4px; }
+.quick-clear p { color:var(--muted); line-height:1.5; margin:10px 0; }
+.quick-more,.quick-new { padding:8px; font-size:12px; color:var(--accent)!important; width:100%; }
+@media(max-width:319px) { .quick-clipboard{padding:8px;gap:7px}.quick-clipboard nav button{padding:6px}.quick-clipboard footer{font-size:10px} }
+@media(max-height:320px) { .quick-clipboard{gap:5px;padding:6px}.quick-clipboard footer{display:none}.quick-clipboard header{min-height:24px}.quick-search{padding:5px 8px}.quick-feedback{max-height:50px} }

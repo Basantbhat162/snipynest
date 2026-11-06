@@ -6,6 +6,10 @@ pub mod keyboard;
 pub mod image_pdf;
 pub mod lifecycle;
 pub mod preferences;
+pub mod quick_keys;
+pub mod win_v;
+pub mod quick_clipboard;
+pub mod paste;
 pub mod region_capture;
 pub mod screen_capture;
 pub mod sound;
@@ -44,6 +48,7 @@ pub struct AppState {
     pub preferences: Arc<RwLock<preferences::Preferences>>,
     pub _listener: Arc<RwLock<Option<ClipboardListener>>>,
     pub single_keys: keyboard::Service,
+    pub quick_keys: quick_keys::Service,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -295,7 +300,24 @@ pub fn run() {
         eprintln!("Single-key mode is disarmed: {error}");
     }
 
+    let app_for_quick = app_handle_holder.clone();
+    let quick_keys = quick_keys::Service::start(move || {
+        if let Some(app) = app_for_quick.read().as_ref() {
+            let handle = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if let Err(message) = quick_clipboard::toggle(&handle) { let _ = handle.emit("capture-error", serde_json::json!({"message":message})); }
+            });
+        }
+    }).expect("Quick Clipboard keyboard service unavailable");
+    if let Err(error) = quick_keys.apply(&preferences.quick_clipboard_shortcut, preferences.replace_win_v) {
+        preferences.replace_win_v = false;
+        // Keep a usable fallback if Win+V is reserved. Never change a user's history shortcut.
+        let _ = quick_keys.apply(&preferences.quick_clipboard_shortcut, false);
+        *quick_keys.error.lock()=Some(error.clone());
+        eprintln!("Quick Clipboard shortcut: {error}");
+    }
     let state = AppState {
+        quick_keys,
         single_keys,
         data_dir,
         editor_expanded: Arc::new(AtomicBool::new(false)),
@@ -316,6 +338,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(state)
         .manage(region_capture::RegionState::default())
+        .manage(quick_clipboard::State::default())
         .setup(move |app| {
             let app_handle = app.handle().clone();
             if let Err(message) = browser_bridge::start() {
@@ -331,6 +354,7 @@ pub fn run() {
             let toggle_item = MenuItem::with_id(app, "toggle", "Show history", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit SnipyNest", true, None::<&str>)?;
             let snip_item = MenuItem::with_id(app, "snip", "Screen snip", true, None::<&str>)?;
+            let quick_item = MenuItem::with_id(app, "quick", "Quick Clipboard", true, None::<&str>)?;
             let pad_item = MenuItem::with_id(app, "pad", "Show Capture Pad", true, None::<&str>)?;
             let reset_item =
                 MenuItem::with_id(app, "reset-pad", "Reset Pad position", true, None::<&str>)?;
@@ -345,6 +369,7 @@ pub fn run() {
                 app,
                 &[
                     &toggle_item,
+                    &quick_item,
                     &snip_item,
                     &pad_item,
                     &reset_item,
@@ -361,6 +386,7 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
+                    "quick" => { let _ = quick_clipboard::from_tray(app); }
                     "toggle" => {
                         if let Some(window) = app.get_webview_window("main") {
                             commands::toggle_window_visibility(&window);
@@ -410,6 +436,7 @@ pub fn run() {
                     TrayIconEvent::DoubleClick { button, .. } => {
                         if button == tauri::tray::MouseButton::Left {
                             let app = tray.app_handle();
+                            let _ = quick_clipboard::dismiss(app, None);
                             if let Some(window) = app.get_webview_window("main") {
                                 if !app
                                     .state::<AppState>()
@@ -430,6 +457,7 @@ pub fn run() {
 
             // Configure Main Window
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window::motion::disable_transitions(&window);
                 reposition_sidebar_to_active_display(&window);
                 #[cfg(windows)]
                 if let Ok(hwnd) = window.hwnd() {
@@ -480,6 +508,14 @@ pub fn run() {
             if window.label() != "main" {
                 return;
             }
+            if quick_clipboard::active(window.app_handle()) {
+                match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => { api.prevent_close(); let _ = quick_clipboard::dismiss(window.app_handle(), None); }
+                    tauri::WindowEvent::Focused(false) if quick_clipboard::presented(window.app_handle()) && !window::has_native_focus(window) => { let _ = quick_clipboard::dismiss(window.app_handle(), None); }
+                    _ => {}
+                }
+                return;
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 if window
@@ -498,6 +534,7 @@ pub fn run() {
             if let tauri::WindowEvent::Focused(focused) = event {
                 // Peek Mode: auto-hide on blur if not pinned
                 if !focused
+                    && window.is_visible().unwrap_or(false)
                     && !window::has_native_focus(window)
                     && !window
                         .state::<AppState>()
@@ -519,7 +556,15 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            quick_clipboard::get_quick_session,
+            quick_clipboard::show_quick_clipboard,
+            quick_clipboard::dismiss_quick_clipboard,
+            quick_clipboard::open_quick_workspace,
+            quick_clipboard::get_quick_clips,
+            quick_clipboard::get_quick_preview,
+            quick_clipboard::paste_quick_clip,
             region_capture::get_region_capture_snapshot,
+            region_capture::get_region_capture_frame,
             region_capture::show_region_capture,
             region_capture::cancel_region_capture,
             region_capture::copy_region_capture,

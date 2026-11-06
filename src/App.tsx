@@ -45,7 +45,8 @@ const labels: Record<Category, string> = {
   pinned: "Pinned clips",
   trash: "Trash",
 };
-export function App() {
+export function App({suspended=false}:{suspended?:boolean} = {}) {
+  const suspendedRef=useRef(suspended); suspendedRef.current=suspended;
   const [recoverableClip, setRecoverableClip] = useState<Clip | null>(null);
   useEffect(() => { void readDraft().then(draft=>setRecoverableClip(draft?.clip ?? null)).catch(()=>{}); }, []);
   const [preferences, setPreferences] = useState<Preferences | null>(null);
@@ -135,6 +136,7 @@ export function App() {
   }, []);
   const hide = () => void invoke("hide_sidebar").catch(report);
   useEffect(() => {
+    if (suspended) return;
     const timer = setTimeout(
       () => {
         void history.load(category, search, page);
@@ -150,6 +152,12 @@ export function App() {
       history.invalidate();
     };
   }, [category, search, page, history]);
+  const wasSuspended=useRef(false);
+  useEffect(()=>{
+    if(suspended){history.invalidate();clearTimeout(refreshTimer.current);clearTimeout(statsTimer.current);statsTimer.current=undefined;}
+    else if(wasSuspended.current){const q=current.current;void history.load(q.category,q.search,q.page,true);}
+    wasSuspended.current=suspended;
+  },[suspended,history]);
   useEffect(() => {
     void invoke<Preferences>("get_preferences")
       .then(setPreferences)
@@ -158,6 +166,7 @@ export function App() {
     void refreshStats();
     void invoke<boolean>("get_sidebar_pinned").then(setIsPinned).catch(report);
     const subscription = listen("new-clip", () => {
+      if (suspendedRef.current) return;
       clearTimeout(refreshTimer.current);
       refreshTimer.current = setTimeout(() => {
         const q=current.current;
@@ -222,10 +231,10 @@ export function App() {
     setSelectedIds(previous => selectRange(previous, clips.map(clip=>clip.id), anchor, id, !previous.has(id)));
     if (!range || !selectionAnchor.current) selectionAnchor.current = id;
   };
-  async function reveal(id: string) {
+  async function reveal(id: string, trash = category === "trash") {
     const request = ++revealRequest.current;
     try {
-      const destination = category === "trash" ? "trash" : "all";
+      const destination = trash ? "trash" : "all";
       const position = await invoke<number | null>("locate_clip_in_history", {id, trash:destination === "trash"});
       if (request !== revealRequest.current) return;
       if (position === null) throw new Error("This clip is no longer in history. Refresh and try again.");
@@ -234,6 +243,10 @@ export function App() {
       history.clear(); setRevealedId(id); setCategory(destination); setSearch(""); setPage(targetPage);
     } catch (error) { if (request === revealRequest.current) report(error); }
   }
+  useEffect(()=>{
+    const subscription=listen<string>("reveal-clip",event=>{void reveal(event.payload,false);});
+    return()=>{void subscription.then(fn=>fn());};
+  });
   useEffect(() => {
     const target = pendingReveal.current;
     if (!target || loading || search || target.page !== page || target.category !== category || view?.search !== "" || view.page !== page || view.category !== category) return;
@@ -328,7 +341,7 @@ export function App() {
   }
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || modalOpen) return;
+      if (suspended || event.defaultPrevented || modalOpen) return;
       const target = event.target as HTMLElement;
       const editing = target.matches('input,textarea,[contenteditable="true"]');
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {

@@ -158,8 +158,10 @@ export class AnnotationDocument {
   private actions: AnnotationAction[] = [];
   private baselineStep = 1;
   private undone: AnnotationAction[] = [];
+  private baselineReady = false;
+  hasEdits = false;
   get canRedo() { return this.undone.length > 0; }
-  snapshot() { return { version: 1, baseline: this.baseline.toDataURL("image/png"), actions: this.actions, undone: this.undone, baselineStep: this.baselineStep }; }
+  snapshot() { this.ensureBaseline(); return { version: 1, baseline: this.baseline.toDataURL("image/png"), actions: this.actions, undone: this.undone, baselineStep: this.baselineStep }; }
   static async restore(snapshot: ReturnType<AnnotationDocument["snapshot"]>) {
     if (snapshot.version !== 1 || snapshot.actions.length + snapshot.undone.length > 256) throw new Error("Draft format is unsupported");
     const image = new Image();
@@ -167,7 +169,7 @@ export class AnnotationDocument {
     const result = new AnnotationDocument(image);
     result.actions = snapshot.actions; result.undone = snapshot.undone; result.baselineStep = snapshot.baselineStep; result.rebuild(); return result;
   }
-  constructor(image: HTMLImageElement) {
+  constructor(image: HTMLImageElement, lazyBaseline = false) {
     const width = image.naturalWidth,
       height = image.naturalHeight;
     if (!width || !height || width * height > MAX_IMAGE_PIXELS)
@@ -178,12 +180,12 @@ export class AnnotationDocument {
       throw new Error(
         "This image exceeds the 32,767 pixel canvas limit. Split the capture into shorter images first.",
       );
-    this.baseline.width = width;
-    this.baseline.height = height;
-    const ctx = this.baseline.getContext("2d");
+    this.canvas.width = width;
+    this.canvas.height = height;
+    const ctx = this.canvas.getContext("2d");
     if (!ctx) throw new Error("Image editing is unavailable in this window.");
     ctx.drawImage(image, 0, 0);
-    this.rebuild();
+    if (!lazyBaseline) this.ensureBaseline();
   }
   get canUndo() {
     return this.actions.length > 0;
@@ -192,6 +194,8 @@ export class AnnotationDocument {
     return nextStepNumber(this.actions, this.baselineStep);
   }
   commit(action: AnnotationAction) {
+    this.ensureBaseline();
+    this.hasEdits = true;
     this.undone = [];
     // Conservative allocation accounting includes point-object and array overhead.
     this.actions = trimUndoHistory(
@@ -239,9 +243,19 @@ export class AnnotationDocument {
     this.undone = [];
   }
   private rebuild() {
+    if (!this.baselineReady) return;
     this.canvas.width = this.baseline.width;
     this.canvas.height = this.baseline.height;
     this.canvas.getContext("2d")!.drawImage(this.baseline, 0, 0);
     this.actions.forEach((action) => applyAction(this.canvas, action));
+  }
+  private ensureBaseline() {
+    if (this.baselineReady) return;
+    this.baseline.width = this.canvas.width;
+    this.baseline.height = this.canvas.height;
+    const ctx = this.baseline.getContext("2d");
+    if (!ctx) throw new Error("Image editing is unavailable in this window.");
+    ctx.drawImage(this.canvas, 0, 0);
+    this.baselineReady = true;
   }
 }

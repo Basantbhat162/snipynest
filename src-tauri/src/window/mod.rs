@@ -7,3 +7,4 @@ pub use surfaces::*;
 pub mod movement;
 pub use movement::*;
 pub mod pad_timer;
+pub mod motion;

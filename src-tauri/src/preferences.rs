@@ -9,6 +9,8 @@ pub struct Preferences {
     pub snip_shortcut: String,
     pub history_shortcut: String,
     pub quick_capture_shortcut: String,
+    pub quick_clipboard_shortcut: String,
+    pub replace_win_v: bool,
     pub exclude_taskbar: bool,
     pub single_key_enabled: bool,
     pub single_key_resume: bool,
@@ -30,6 +32,8 @@ impl Default for Preferences {
             snip_shortcut: "Ctrl+Shift+S".into(),
             history_shortcut: "Ctrl+Shift+V".into(),
             quick_capture_shortcut: "Ctrl+Alt+S".into(),
+            quick_clipboard_shortcut: "Ctrl+Alt+V".into(),
+            replace_win_v: false,
             exclude_taskbar: true,
             single_key_enabled: false,
             single_key_resume: false,
@@ -45,6 +49,22 @@ impl Default for Preferences {
     }
 }
 impl Preferences {
+    pub(crate) fn from_stored_json(json: &str) -> Result<Self, serde_json::Error> {
+        let value: serde_json::Value = serde_json::from_str(json)?;
+        let legacy = value.get("quickClipboardShortcut").is_none();
+        let mut preferences: Self = serde_json::from_value(value)?;
+        if legacy {
+            let occupied: Vec<_> = [&preferences.snip_shortcut, &preferences.history_shortcut, &preferences.quick_capture_shortcut]
+                .into_iter().filter_map(|key| crate::clipboard::listener::parse_shortcut(key).ok()).collect();
+            for candidate in ["Ctrl+Alt+V", "Alt+Shift+C", "Ctrl+Alt+H", "Alt+Shift+Q"] {
+                if !occupied.contains(&crate::clipboard::listener::parse_shortcut(candidate).unwrap()) {
+                    preferences.quick_clipboard_shortcut = candidate.into();
+                    break;
+                }
+            }
+        }
+        Ok(preferences)
+    }
     pub fn validate(&self) -> Result<(), String> {
         crate::keyboard::validate(&self.single_key_bindings)?;
         if self.single_key_enabled && self.single_key_bindings.is_empty() {
@@ -65,8 +85,10 @@ impl Preferences {
         let a = crate::clipboard::listener::parse_shortcut(&self.snip_shortcut)?;
         let b = crate::clipboard::listener::parse_shortcut(&self.history_shortcut)?;
         let c = crate::clipboard::listener::parse_shortcut(&self.quick_capture_shortcut)?;
-        if a == b || a == c || b == c {
-            return Err("Snip, history and quick capture shortcuts must be different".into());
+        let d = crate::clipboard::listener::parse_shortcut(&self.quick_clipboard_shortcut)?;
+        let unique: std::collections::HashSet<_> = [a,b,c,d].into_iter().collect();
+        if unique.len() != 4 {
+            return Err("Snip, history, quick capture and Quick Clipboard shortcuts must be different".into());
         }
         Ok(())
     }

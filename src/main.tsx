@@ -1,7 +1,7 @@
 import "../extension/theme.js";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import {MainWorkspace} from "./components/MainWorkspace";
 import { CapturePad } from "./components/CapturePad";
 import { RegionCapture } from "./components/RegionCapture";
 import { AppErrorBoundary } from "./components/AppErrorBoundary";
@@ -17,7 +17,7 @@ const isRegion = isTauri() && getCurrentWindow().label === "capture-overlay";
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <AppErrorBoundary>
-      {isRegion ? <RegionCapture /> : isPad ? <CapturePad /> : <App />}
+      {isRegion ? <RegionCapture /> : isPad ? <CapturePad /> : <MainWorkspace />}
     </AppErrorBoundary>
   </React.StrictMode>,
 );

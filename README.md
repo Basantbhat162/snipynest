@@ -2,7 +2,7 @@
 
 A Windows clipboard workspace with searchable history, screenshot editing, a small Capture Pad, and a browser companion for webpage screenshots.
 
-**Current source: 1.6.5 development build.** Search can reveal a Clip in history, Shift-click selects a range, and Screen snip spans the extended desktop with compact tools. Image editing supports keyboard zoom and lossless PDF export. The features below require the updated desktop and Companion. The public downloads below remain 1.5.1.
+**Current source: 1.7.0 development build.** Quick Clipboard adds compact search, filters, pins and one-action paste. Screen snip uses a binary frozen frame and disables native window transitions. Search can reveal a Clip in history, Shift-click selects a range, and Screen snip spans the extended desktop with compact tools. Image editing supports keyboard zoom and lossless PDF export. The features below require the updated desktop and Companion. The public downloads below remain 1.5.1.
 
 ## Download for Windows
 
@@ -53,7 +53,8 @@ History filters share one compact row. The pin and trash icons beside Links open
 | Action | Shortcut or control |
 | --- | --- |
 | Open or hide history | Ctrl+Shift+V; alternative Alt+Shift+V |
-| Start a Windows screen snip | Ctrl+Shift+S or Windows+Shift+S |
+| Start Screen snip | Ctrl+Shift+S or your custom key; Windows+Shift+S opens Windows snipping |
+| Open Quick Clipboard | Ctrl+Alt+V by default; configurable in Settings |
 | Copy the monitor under the pointer | Ctrl+Alt+S, then Ctrl+V in your destination; taskbar excluded by default |
 | Copy the visible browser area as PNG | Alt+Shift+S; captures the current viewport without scrolling |
 | Copy a full scrolling webpage as PNG | Alt+Shift+L |
@@ -67,6 +68,10 @@ History filters share one compact row. The pin and trash icons beside Links open
 Restoring one of the 64 most recently seen images updates history quietly instead of replaying capture sound or reopening the Pad. Explicit Windows snips still notify, even with identical pixels.
 
 On a search-result card, choose **Show in history** (the locate icon) to clear search and filters, jump to that Clip's page and outline its position. Trash results stay in Trash. Click a checkbox, then **Shift-click** another to select the inclusive range on that page; Shift-clicking a checked target clears the range. Use **Copy text** to copy full selected text, code or links in displayed order, separated by blank lines. Mixed image/PDF selections use Export or Drag. Selection resets when changing pages or filters.
+
+Quick Clipboard is a compact view near the pointer. Search or choose All, Images, Text, Code or Links; the pin filter shows pinned Clips. Click a Clip or press Enter to paste into the original app and close; arrow keys navigate, Ctrl+C in the list or the copy icon copies without closing, and Escape or clicking outside dismisses. Search-field copying keeps its normal meaning. Open full workspace reveals the selected Clip in Sidebar. Clear moves all unpinned SnipyNest Clips to Trash with confirmation and Undo; it leaves Windows history and the system clipboard unchanged. It shows up to 200 Clips per quick browsing session; use search or the full workspace for the rest.
+
+Settings → Global shortcuts includes a separate Quick Clipboard shortcut and **Use SnipyNest for Win+V**. Win+V takeover is experimental and off by default. It uses a small chord-only Windows hook while running; disabling it or exiting releases it. It does not disable Windows history or change registry mappings. Keep the regular shortcut if another tool conflicts. If focus restoration or input injection is refused, the Clip remains copied and a manual-paste message appears. Elevated apps may require manual paste; SnipyNest never elevates itself.
 
 Desktop shortcuts can be changed in Settings. Click the Capture Pad image to open Quick edit, or a PDF to open it in your default PDF app. The history control opens history. Drag the thumbnail into a compatible app, or drag the top edge to move the Pad. The count badge shows new captures; X hides the Pad. By default it hides after eight seconds of inactivity; hover, focus and drag pause the timer. Settings controls Pad visibility, sound and return after closing history. The Pad floats near the taskbar; it is not embedded in it.
 
